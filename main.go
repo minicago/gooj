@@ -1,23 +1,25 @@
 package main
 
 import (
-	"fmt"
+	"flag"
 
+	"github.com/minicago/gooj/cmd"
 	"github.com/minicago/gooj/server"
 )
 
 func main() {
 	// fmt.Println("Hello, World!")
-	shutdownFlag := make(chan int)
-	go func(ch chan int) {
-		for {
-			var x string
-			fmt.Scan(&x)
-			if x == "end" {
-				ch <- 0
-				break
-			}
-		}
-	}(shutdownFlag)
-	server.Listen(shutdownFlag)
+
+	var method string
+	var background bool
+	flag.StringVar(&method, "method", "None", "run | cmd")
+	flag.BoolVar(&background, "background", false, "--background = true | false")
+	flag.Parse()
+
+	switch method {
+	case "run":
+		server.StartServer(background)
+	case "cmd":
+		cmd.StartCmdConsole()
+	}
 }
