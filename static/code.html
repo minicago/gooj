@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>在线评测</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 20px; }
+      .container { max-width: 900px; margin: 0 auto; }
+      select, input[type="text"], textarea { width: 100%; box-sizing: border-box; padding: 8px; }
+      textarea { height: 320px; font-family: monospace; }
+      button { padding: 8px 12px; margin-top: 8px; }
+      .row { display: flex; gap: 12px; }
+      .col { flex: 1; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>提交代码</h1>
+      <div class="row">
+        <div class="col">
+          <label>题目</label>
+          <select id="problemSelect"></select>
+        </div>
+        <div class="col">
+          <label>用户名</label>
+          <input id="username" type="text" placeholder="输入用户名" />
+        </div>
+      </div>
+
+      <div style="margin-top:12px">
+        <label>C++ 代码</label>
+        <textarea id="code">#include <bits/stdc++.h>
+using namespace std;
+int main(){
+    cout<<"hello"<<endl;
+    return 0;
+}
+</textarea>
+      </div>
+      <div>
+        <button id="submitBtn">提交并运行</button>
+        <span id="status" style="margin-left:12px"></span>
+      </div>
+
+      <h2>运行结果</h2>
+      <pre id="result"></pre>
+    </div>
+
+    <script>
+      async function loadProblems() {
+        try {
+          const res = await fetch('/problems');
+          if (!res.ok) return;
+          const list = await res.json();
+          const sel = document.getElementById('problemSelect');
+          // expecting list to be an array of problem names or objects
+          if (Array.isArray(list)) {
+            list.forEach(p => {
+              const opt = document.createElement('option');
+              if (typeof p === 'string') {
+                opt.value = p; opt.textContent = p;
+              } else if (p.name) {
+                opt.value = p.name; opt.textContent = p.name + (p.title?(' - '+p.title):'');
+              }
+              sel.appendChild(opt);
+            });
+          }
+        } catch (e) { console.error(e); }
+      }
+
+      document.getElementById('submitBtn').addEventListener('click', async () => {
+        const username = document.getElementById('username').value.trim();
+        const problem = document.getElementById('problemSelect').value;
+        const code = document.getElementById('code').value;
+        if (!username) return alert('请输入用户名');
+        if (!problem) return alert('请选择题目');
+        document.getElementById('status').textContent = '提交中...';
+        const res = await fetch('/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, problem, code })
+        });
+        const j = await res.json();
+        document.getElementById('status').textContent = j.status || 'done';
+        // fetch user's result file and display
+        const user = encodeURIComponent(username);
+  const r = await fetch(`/result/${user}/${problem}`);
+        const text = r.ok ? await r.text() : 'no result file';
+        document.getElementById('result').textContent = text;
+      });
+
+      loadProblems();
+    </script>
+  </body>
+</html>
