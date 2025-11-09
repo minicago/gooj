@@ -1,3 +1,89 @@
-<body>
-    hello for static
-</body>
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>留言板</title>
+        <style>
+            body { font-family: Arial, sans-serif; padding: 20px; }
+            .container { max-width: 600px; margin: 0 auto; }
+            input[type="text"] { width: 100%; padding: 8px; box-sizing: border-box; }
+            button { margin-top: 8px; padding: 8px 12px; }
+            .message { padding: 6px 8px; border-bottom: 1px solid #eee; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>留言板</h1>
+            <div>
+                <input id="messageInput" type="text" placeholder="输入你的留言，然后按发送" />
+                <button id="sendBtn">发送</button>
+            </div>
+            <h2>留言列表</h2>
+            <div id="messages"></div>
+        </div>
+
+        <script>
+            async function fetchBoard() {
+                try {
+                    const res = await fetch('/board');
+                    const j = await res.json();
+                    const el = document.getElementById('messages');
+                    el.innerHTML = '';
+                                    (j.messages || []).forEach((m, i) => {
+                                        const d = document.createElement('div');
+                                        d.className = 'message';
+
+                                        const del = document.createElement('button');
+                                        del.textContent = '×';
+                                        del.style.marginRight = '8px';
+                                        del.style.color = '#900';
+                                        del.style.border = 'none';
+                                        del.style.background = 'transparent';
+                                        del.style.cursor = 'pointer';
+                                        del.title = '删除留言';
+                                        del.addEventListener('click', async () => {
+                                            if (!confirm('确定删除此留言吗？')) return;
+                                            await fetch(`/message/${i}`, { method: 'DELETE' });
+                                            fetchBoard();
+                                        });
+
+                                        const txt = document.createElement('span');
+                                        txt.textContent = m;
+
+                                        d.appendChild(del);
+                                        d.appendChild(txt);
+                                        el.appendChild(d);
+                                    });
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+
+            async function postMessage(msg) {
+                try {
+                    const res = await fetch('/message', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: msg })
+                    });
+                    return await res.json();
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+
+            document.getElementById('sendBtn').addEventListener('click', async () => {
+                const input = document.getElementById('messageInput');
+                const v = input.value.trim();
+                if (!v) return alert('请输入内容');
+                await postMessage(v);
+                input.value = '';
+                fetchBoard();
+            });
+
+            // fetch messages on load
+            fetchBoard();
+        </script>
+    </body>
+</html>

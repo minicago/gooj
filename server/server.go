@@ -5,23 +5,19 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/minicago/gooj/cmd"
+	"github.com/minicago/gooj/web"
 	"github.com/sevlyar/go-daemon"
 )
 
 func listen(cmdChan chan string) {
-	mx := http.NewServeMux()
-	mx.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Welcome to my website!")
-	})
-
-	fs := http.FileServer(http.Dir("static/"))
-	mx.Handle("/static/", http.StripPrefix("/static/", fs))
+	handler := web.NewRouter()
 
 	srv := http.Server{
 		Addr:    ":80",
-		Handler: mx,
+		Handler: handler,
 	}
 
 	go func() {
@@ -29,11 +25,20 @@ func listen(cmdChan chan string) {
 			log.Fatalf("%v", err)
 		}
 	}()
-	fmt.Println("listening")
+	fmt.Println("listening on :80")
+
 	for {
-		cmd := <-cmdChan
-		if cmd == "shutdown" {
+		cmdStr := <-cmdChan
+		cmdStr = strings.TrimSpace(cmdStr)
+		if strings.EqualFold(cmdStr, "shutdown") {
 			break
+		}
+		if strings.EqualFold(cmdStr, "clear message") {
+			if err := web.ClearMessages(); err != nil {
+				log.Printf("clear messages failed: %v", err)
+			} else {
+				log.Printf("messages cleared")
+			}
 		}
 	}
 	if err := srv.Shutdown(context.Background()); err != nil {
