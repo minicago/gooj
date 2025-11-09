@@ -52,56 +52,59 @@ func SubmitHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// compile
-	binPath := filepath.Join(userDir, "solution")
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "g++", codePath, "-O2", "-std=c++17", "-o", binPath)
-	var cerr bytes.Buffer
-	cmd.Stderr = &cerr
-	if err := cmd.Run(); err != nil {
-		// compilation failed — save result and respond
-		resText := fmt.Sprintf("compile error: %s", cerr.String())
-		_ = os.WriteFile(filepath.Join(userDir, req.Problem+".result"), []byte(resText), 0644)
-		appendMessage(fmt.Sprintf("%s submitted %s => COMPILE_ERROR", req.Username, req.Problem))
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "compile_error", "detail": cerr.String()})
-		return
-	}
-
-	// run with input file data/<problem>/1.in
+	// prepare input/output files inside userDir for docker
 	inPath := filepath.Join("data/problem", req.Problem, "1.in")
 	outPath := filepath.Join("data/problem", req.Problem, "1.out")
-	var input []byte
+	// copy input to userDir/in.in
+	inDest := filepath.Join(userDir, "in")
 	if b, err := os.ReadFile(inPath); err == nil {
-		input = b
+		_ = os.WriteFile(inDest, b, 0644)
+	} else {
+		// ensure empty input file exists
+		_ = os.WriteFile(inDest, []byte(""), 0644)
 	}
 
-	runCtx, runCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer runCancel()
-	runCmd := exec.CommandContext(runCtx, binPath)
-	runCmd.Stdin = bytes.NewReader(input)
-	var runOut bytes.Buffer
-	var runErr bytes.Buffer
-	runCmd.Stdout = &runOut
-	runCmd.Stderr = &runErr
-	if err := runCmd.Run(); err != nil {
-		resText := fmt.Sprintf("runtime error: %v; stderr:%s", err, runErr.String())
-		_ = os.WriteFile(filepath.Join(userDir, req.Problem+".result"), []byte(resText), 0644)
-		appendMessage(fmt.Sprintf("%s submitted %s => RUNTIME_ERROR", req.Username, req.Problem))
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "runtime_error", "detail": runErr.String()})
-		return
-	}
-
-	// read expected output
 	expected := []byte{}
 	if b, err := os.ReadFile(outPath); err == nil {
 		expected = b
 	}
 
-	got := runOut.Bytes()
-	// normalize newline endings and trim trailing whitespace
+	// run compilation and execution inside Docker (gcc image) to sandbox
+	absUserDir, _ := filepath.Abs(userDir)
+	// build a shell command: compile, if compile errors print to stderr and exit 2; else run with timeout and capture stdout
+	shellCmd := fmt.Sprintf("g++ %s -O2 -std=c++14 -o solution 2>compile.err; if [ -s compile.err ]; then cat compile.err >&2; exit 2; fi; timeout 5s ./solution < in > out.out 2>runtime.err; if [ -s runtime.err ]; then cat runtime.err >&2; exit 3; fi; cat out.out", filepath.Base(codePath))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	dockerArgs := []string{"run", "--rm", "-v", absUserDir + ":/work", "-w", "/work", "--network", "none", "--memory", "512m", "--cpus", "0.5", "gcc:12", "bash", "-lc", shellCmd}
+	cmd := exec.CommandContext(ctx, "docker", dockerArgs...)
+	var combinedOut bytes.Buffer
+	cmd.Stdout = &combinedOut
+	var combinedErr bytes.Buffer
+	cmd.Stderr = &combinedErr
+	if err := cmd.Run(); err != nil {
+		// determine error type by exit code output. If combinedErr has content and exit code 2 => compile error; 3 => runtime error
+		stderr := combinedErr.String()
+		if strings.Contains(stderr, "error") && strings.Contains(err.Error(), "exit status 2") {
+			resText := fmt.Sprintf("compile error: %s", stderr)
+			_ = os.WriteFile(filepath.Join(userDir, req.Problem+".result"), []byte(resText), 0644)
+			appendMessage(fmt.Sprintf("%s submitted %s => COMPILE_ERROR", req.Username, req.Problem))
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "compile_error", "detail": stderr})
+			return
+		}
+		// runtime or other docker error
+		resText := fmt.Sprintf("runtime error: %v; stderr:%s", err, stderr)
+		_ = os.WriteFile(filepath.Join(userDir, req.Problem+".result"), []byte(resText), 0644)
+		appendMessage(fmt.Sprintf("%s submitted %s => RUNTIME_ERROR", req.Username, req.Problem))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "runtime_error", "detail": stderr})
+		return
+	}
+
+	// success: combinedOut holds the program stdout
+	got := combinedOut.Bytes()
+	// normalize and compare
 	normalize := func(b []byte) string {
 		s := string(b)
 		s = strings.ReplaceAll(s, "\r\n", "\n")
@@ -118,7 +121,7 @@ func SubmitHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// wrong answer
-	resText := fmt.Sprintf("WA\n--- expected ---\n%s\n--- got ---\n%s", string(expected), runOut.String())
+	resText := fmt.Sprintf("WA\n--- expected ---\n%s\n--- got ---\n%s", string(expected), string(got))
 	_ = os.WriteFile(filepath.Join(userDir, req.Problem+".result"), []byte(resText), 0644)
 	appendMessage(fmt.Sprintf("%s submitted %s => WA", req.Username, req.Problem))
 	w.Header().Set("Content-Type", "application/json")
