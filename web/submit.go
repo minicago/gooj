@@ -1,17 +1,14 @@
 package web
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
+
+	"github.com/minicago/gooj/file_service"
 )
 
 // SubmitRequest represents the JSON payload sent from the /code page
@@ -36,96 +33,49 @@ func SubmitHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// prepare directories
-	userDir := filepath.Join("data/user", req.Username)
-	if err := os.MkdirAll(userDir, 0755); err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		log.Printf("mkdir user dir failed: %v", err)
-		return
-	}
-
-	// save code
+	// prepare directories and save code
+	userDir := filepath.Join("data", "user", req.Username)
 	codePath := filepath.Join(userDir, req.Problem+".cpp")
-	if err := os.WriteFile(codePath, []byte(req.Code), 0644); err != nil {
+	svc := file_service.Default()
+	if svc == nil {
+		http.Error(w, "server not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	// ensure user dir and write code via file service
+	if _, err := svc.ModifyFile(filepath.Join("data", "user", req.Username, ".touch"), func(_ []byte) ([]byte, error) {
+		// noop modify just to ensure dir exists
+		return []byte(""), nil
+	}); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
-		log.Printf("write code failed: %v", err)
+		return
+	}
+	if err := svc.WriteFile(codePath, []byte(req.Code)); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	// prepare input/output files inside userDir for docker
-	inPath := filepath.Join("data/problem", req.Problem, "1.in")
-	outPath := filepath.Join("data/problem", req.Problem, "1.out")
-	// copy input to userDir/in.in
-	inDest := filepath.Join(userDir, "in")
-	if b, err := os.ReadFile(inPath); err == nil {
-		_ = os.WriteFile(inDest, b, 0644)
-	} else {
-		// ensure empty input file exists
-		_ = os.WriteFile(inDest, []byte(""), 0644)
-	}
-
-	expected := []byte{}
-	if b, err := os.ReadFile(outPath); err == nil {
-		expected = b
-	}
-
-	// run compilation and execution inside Docker (gcc image) to sandbox
-	absUserDir, _ := filepath.Abs(userDir)
-	// build a shell command: compile, if compile errors print to stderr and exit 2; else run with timeout and capture stdout
-	shellCmd := fmt.Sprintf("g++ %s -O2 -std=c++14 -o solution 2>compile.err; if [ -s compile.err ]; then cat compile.err >&2; exit 2; fi; timeout 5s ./solution < in > out.out 2>runtime.err; if [ -s runtime.err ]; then cat runtime.err >&2; exit 3; fi; cat out.out", filepath.Base(codePath))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	dockerArgs := []string{"run", "--rm", "-v", absUserDir + ":/work", "-w", "/work", "--network", "none", "--memory", "512m", "--cpus", "0.5", "gcc:12", "bash", "-lc", shellCmd}
-	cmd := exec.CommandContext(ctx, "docker", dockerArgs...)
-	var combinedOut bytes.Buffer
-	cmd.Stdout = &combinedOut
-	var combinedErr bytes.Buffer
-	cmd.Stderr = &combinedErr
-	if err := cmd.Run(); err != nil {
-		// determine error type by exit code output. If combinedErr has content and exit code 2 => compile error; 3 => runtime error
-		stderr := combinedErr.String()
-		if strings.Contains(stderr, "error") && strings.Contains(err.Error(), "exit status 2") {
-			resText := fmt.Sprintf("compile error: %s", stderr)
-			_ = os.WriteFile(filepath.Join(userDir, req.Problem+".result"), []byte(resText), 0644)
-			appendMessage(fmt.Sprintf("%s submitted %s => COMPILE_ERROR", req.Username, req.Problem))
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]string{"status": "compile_error", "detail": stderr})
-			return
+	// enqueue job into data/queue.json
+	queuePath := filepath.Join("data", "queue.json")
+	job := map[string]string{"username": req.Username, "problem": req.Problem, "code": codePath}
+	_, err := svc.ModifyFile(queuePath, func(cur []byte) ([]byte, error) {
+		var arr []map[string]string
+		if len(cur) > 0 {
+			if err := json.Unmarshal(cur, &arr); err != nil {
+				// if corrupt, replace
+				arr = []map[string]string{}
+			}
 		}
-		// runtime or other docker error
-		resText := fmt.Sprintf("runtime error: %v; stderr:%s", err, stderr)
-		_ = os.WriteFile(filepath.Join(userDir, req.Problem+".result"), []byte(resText), 0644)
-		appendMessage(fmt.Sprintf("%s submitted %s => RUNTIME_ERROR", req.Username, req.Problem))
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "runtime_error", "detail": stderr})
+		arr = append(arr, job)
+		return json.Marshal(arr)
+	})
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	// success: combinedOut holds the program stdout
-	got := combinedOut.Bytes()
-	// normalize and compare
-	normalize := func(b []byte) string {
-		s := string(b)
-		s = strings.ReplaceAll(s, "\r\n", "\n")
-		s = strings.TrimSpace(s)
-		return s
-	}
-	if normalize(got) == normalize(expected) {
-		resText := "OK"
-		_ = os.WriteFile(filepath.Join(userDir, req.Problem+".result"), []byte(resText), 0644)
-		appendMessage(fmt.Sprintf("%s submitted %s => OK", req.Username, req.Problem))
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-		return
-	}
-
-	// wrong answer
-	resText := fmt.Sprintf("WA\n--- expected ---\n%s\n--- got ---\n%s", string(expected), string(got))
-	_ = os.WriteFile(filepath.Join(userDir, req.Problem+".result"), []byte(resText), 0644)
-	appendMessage(fmt.Sprintf("%s submitted %s => WA", req.Username, req.Problem))
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "wa"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "queued"})
 }
 
 func appendMessage(line string) {

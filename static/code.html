@@ -40,6 +40,7 @@ int main(){
       </div>
       <div>
         <button id="submitBtn">提交并运行</button>
+        <button id="loadLastBtn" style="margin-left:8px">获取上次提交</button>
         <span id="status" style="margin-left:12px"></span>
       </div>
 
@@ -82,12 +83,43 @@ int main(){
           body: JSON.stringify({ username, problem, code })
         });
         const j = await res.json();
-        document.getElementById('status').textContent = j.status || 'done';
-        // fetch user's result file and display
+        document.getElementById('status').textContent = j.status || 'queued';
+        // poll for result
         const user = encodeURIComponent(username);
-  const r = await fetch(`/result/${user}/${problem}`);
-        const text = r.ok ? await r.text() : 'no result file';
-        document.getElementById('result').textContent = text;
+        document.getElementById('result').textContent = '等待评测...';
+        const poll = async () => {
+          const r = await fetch(`/result/${user}/${problem}`);
+          if (!r.ok) return false;
+          const text = await r.text();
+          if (!text) return false;
+          document.getElementById('result').textContent = text;
+          document.getElementById('status').textContent = 'done';
+          return true;
+        };
+        // try immediately then every 1s until got
+        if (await poll()) return;
+        const iv = setInterval(async () => {
+          try {
+            if (await poll()) {
+              clearInterval(iv);
+            }
+          } catch (e) {
+            // ignore
+          }
+        }, 1000);
+      });
+
+      document.getElementById('loadLastBtn').addEventListener('click', async () => {
+        const username = document.getElementById('username').value.trim();
+        const problem = document.getElementById('problemSelect').value;
+        if (!username) return alert('请输入用户名');
+        if (!problem) return alert('请选择题目');
+        const user = encodeURIComponent(username);
+        const r = await fetch(`/codefile/${user}/${problem}`);
+        if (!r.ok) return alert('没有找到上次提交');
+        const j = await r.json();
+        if (j.code) document.getElementById('code').value = j.code;
+        if (j.result) document.getElementById('result').textContent = j.result;
       });
 
       loadProblems();

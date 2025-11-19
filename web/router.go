@@ -24,6 +24,7 @@ func NewRouter() http.Handler {
 	r.HandleFunc("/submit", SubmitHandler).Methods("POST")
 	r.HandleFunc("/problems", ProblemsHandler).Methods("GET")
 	r.HandleFunc("/result/{user}/{problem}", ResultHandler).Methods("GET")
+	r.HandleFunc("/codefile/{user}/{problem}", CodeFileHandler).Methods("GET")
 
 	// static files under /static/
 	fs := http.FileServer(http.Dir("static/"))

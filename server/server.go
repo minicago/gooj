@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/minicago/gooj/cmd"
+	"github.com/minicago/gooj/file_service"
+	"github.com/minicago/gooj/judge"
 	"github.com/minicago/gooj/web"
 	"github.com/sevlyar/go-daemon"
 )
@@ -59,6 +61,9 @@ func StartServer(isbackground bool) {
 			return
 		}
 	}
+
+	file_service.StartDefault()
+	judge.StartJudge()
 
 	cmdChan := make(chan string)
 	shutdownChan := make(chan int)
