@@ -32,3 +32,5 @@ data/*
 # Editor/IDE
 # .idea/
 # .vscode/
+
+tmp/*

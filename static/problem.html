@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>题目</title>
+    <style>body{font-family:Arial;padding:20px;max-width:900px;margin:auto}pre{background:#f7f7f7;padding:12px}</style>
+  </head>
+  <body>
+    <h1 id="title">题目</h1>
+    <div id="limits" style="color:#444;margin-bottom:12px"></div>
+    <h2>题面</h2>
+    <div id="statement" style="white-space:pre-wrap;border:1px solid #eee;padding:12px;background:#fff"></div>
+    <div style="margin-top:16px">
+      <a id="toSubmit" href="#">去提交此题</a>
+    </div>
+
+    <script>
+      function qsGet(name) { const u=new URL(location.href); return u.searchParams.get(name); }
+      const id = qsGet('problem') || '1';
+      document.getElementById('title').textContent = '题目 ' + id;
+      async function load(){
+        const r = await fetch('/api/problem/' + encodeURIComponent(id));
+        if (!r.ok) { document.getElementById('statement').textContent = '加载失败'; return; }
+        const j = await r.json();
+        // prefer server-rendered HTML when available
+        if (j.statement_html) {
+          document.getElementById('statement').innerHTML = j.statement_html;
+        } else {
+          document.getElementById('statement').textContent = j.statement || '';
+        }
+        if (j.config) {
+          const cfg = j.config;
+          let txt = '';
+          if (cfg.time_limit_ms) txt += '时间限制: ' + cfg.time_limit_ms + ' ms; ';
+          if (cfg.memory_mb) txt += '内存限制: ' + cfg.memory_mb + ' MB; ';
+          document.getElementById('limits').textContent = txt;
+        }
+        document.getElementById('toSubmit').href = '/submit?problem=' + encodeURIComponent(id);
+      }
+      load();
+    </script>
+  </body>
+</html>

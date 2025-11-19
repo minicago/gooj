@@ -4,9 +4,9 @@ import (
 	"flag"
 
 	"github.com/minicago/gooj/cmd"
-	"github.com/minicago/gooj/file_service"
 	"github.com/minicago/gooj/judge"
 	"github.com/minicago/gooj/server"
+	"github.com/minicago/gooj/sql_service"
 )
 
 func main() {
@@ -21,7 +21,10 @@ func main() {
 	switch method {
 	case "run":
 		// start file service and judge goroutine before starting server
-		file_service.StartDefault()
+		// initialize sqlite DB (data/app.db)
+		if err := sql_service.Init("data/app.db"); err != nil {
+			panic(err)
+		}
 		judge.StartJudge()
 		server.StartServer(background)
 	case "cmd":

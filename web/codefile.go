@@ -3,10 +3,9 @@ package web
 import (
 	"encoding/json"
 	"net/http"
-	"path/filepath"
 
 	"github.com/gorilla/mux"
-	"github.com/minicago/gooj/file_service"
+	"github.com/minicago/gooj/sql_service"
 )
 
 // CodeFileHandler returns last submitted code and result for a user/problem
@@ -14,15 +13,14 @@ func CodeFileHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	user := vars["user"]
 	problem := vars["problem"]
-	svc := file_service.Default()
-	if svc == nil {
-		http.Error(w, "server not ready", http.StatusInternalServerError)
+	// fetch last submission from DB
+	sub, results, err := sql_service.GetLastSubmission(user, problem)
+	if err != nil {
+		http.Error(w, "no submission", http.StatusNotFound)
 		return
 	}
-	codePath := filepath.Join("data", "user", user, problem+".cpp")
-	resultPath := filepath.Join("data", "user", user, problem+".result")
-	code, _ := svc.ReadFile(codePath)
-	res, _ := svc.ReadFile(resultPath)
+	// return code and a summary
+	summary := map[string]interface{}{"status": sub.Status, "test_results": results}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"code": string(code), "result": string(res)})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"code": sub.Code, "summary": summary})
 }

@@ -2,13 +2,12 @@ package web
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/minicago/gooj/file_service"
+	"github.com/minicago/gooj/sql_service"
 )
 
 // SubmitRequest represents the JSON payload sent from the /code page
@@ -34,71 +33,33 @@ func SubmitHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// prepare directories and save code
-	userDir := filepath.Join("data", "user", req.Username)
-	codePath := filepath.Join(userDir, req.Problem+".cpp")
-	svc := file_service.Default()
-	if svc == nil {
-		http.Error(w, "server not initialized", http.StatusInternalServerError)
-		return
-	}
-
-	// ensure user dir and write code via file service
-	if _, err := svc.ModifyFile(filepath.Join("data", "user", req.Username, ".touch"), func(_ []byte) ([]byte, error) {
-		// noop modify just to ensure dir exists
-		return []byte(""), nil
-	}); err != nil {
+	// userDir := filepath.Join("data", "user", req.Username)
+	// codePath := filepath.Join(userDir, req.Problem+".cpp")
+	// create user in DB (if not exists) and create submission record
+	if err := sql_service.CreateUserIfNotExists(req.Username); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if err := svc.WriteFile(codePath, []byte(req.Code)); err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	// enqueue job into data/queue.json
-	queuePath := filepath.Join("data", "queue.json")
-	job := map[string]string{"username": req.Username, "problem": req.Problem, "code": codePath}
-	_, err := svc.ModifyFile(queuePath, func(cur []byte) ([]byte, error) {
-		var arr []map[string]string
-		if len(cur) > 0 {
-			if err := json.Unmarshal(cur, &arr); err != nil {
-				// if corrupt, replace
-				arr = []map[string]string{}
-			}
-		}
-		arr = append(arr, job)
-		return json.Marshal(arr)
-	})
+	sub, err := sql_service.CreateSubmission(req.Username, req.Problem, req.Code)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "queued"})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "queued", "submission_id": sub.ID})
 }
 
-func appendMessage(line string) {
-	_ = os.MkdirAll("data", 0775)
-	f, err := os.OpenFile("data/message.txt", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Printf("append message open failed: %v", err)
-		return
-	}
-	defer f.Close()
-	_, _ = f.WriteString(line + "\n")
-}
-
-// ProblemsHandler returns the content of data/problem_list.json as-is
-func ProblemsHandler(w http.ResponseWriter, r *http.Request) {
-	data, err := os.ReadFile("data/problem_list.json")
-	if err != nil {
-		http.Error(w, "no problems", http.StatusNotFound)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(data)
-}
+// func appendMessage(line string) {
+// 	_ = os.MkdirAll("data", 0775)
+// 	f, err := os.OpenFile("data/message.txt", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+// 	if err != nil {
+// 		log.Printf("append message open failed: %v", err)
+// 		return
+// 	}
+// 	defer f.Close()
+// 	_, _ = f.WriteString(line + "\n")
+// }
 
 // ResultHandler returns the content of data/{user}/{problem}.result
 func ResultHandler(w http.ResponseWriter, r *http.Request) {
