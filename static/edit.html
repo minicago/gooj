@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>题面编辑</title>
+    <style>body{font-family:Arial;padding:20px;max-width:700px;margin:auto}label{display:block;margin-top:8px}</style>
+  </head>
+  <body>
+    <h1>题面编辑</h1>
+    <div>
+      <h2>修改题面</h2>
+      <label>题目ID <input id="problemID" /></label>
+      <label>新题面 <textarea id="newStatement"></textarea></label>
+      <button id="modifyBtn">修改</button>
+    </div>
+
+    <script>
+      async function postJSON(url, obj) {
+        const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(obj)});
+        if (!res.ok) throw new Error(await res.text());
+        return await res.json();
+      }
+
+      document.getElementById('modifyBtn').addEventListener('click', async ()=>{
+        try{
+          const problemID=document.getElementById('problemID').value.trim();
+          const newStatement=document.getElementById('newStatement').value.trim();
+          if(!problemID||!newStatement) return alert('请输入所有字段');
+          await postJSON('/edit/modify',{problem_id:problemID,new_statement:newStatement});
+          alert('题面修改成功');
+        }catch(e){alert('修改失败: '+e.message)}
+      });
+    </script>
+  </body>
+</html>

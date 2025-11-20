@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>用户管理</title>
+    <style>body{font-family:Arial;padding:20px;max-width:700px;margin:auto}label{display:block;margin-top:8px}</style>
+  </head>
+  <body>
+    <h1>用户管理</h1>
+    <div>
+      <h2>创建用户</h2>
+      <label>用户名 <input id="createUser" /></label>
+      <label>用户组 <input id="createGroup" /></label>
+      <label>权限 <input id="createPermissions" /></label>
+      <button id="createBtn">创建</button>
+    </div>
+
+    <script>
+      async function postJSON(url, obj) {
+        const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(obj)});
+        if (!res.ok) throw new Error(await res.text());
+        return await res.json();
+      }
+
+      document.getElementById('createBtn').addEventListener('click', async ()=>{
+        try{
+          const user=document.getElementById('createUser').value.trim();
+          const group=document.getElementById('createGroup').value.trim();
+          const permissions=document.getElementById('createPermissions').value.trim();
+          if(!user||!group||!permissions) return alert('请输入所有字段');
+          const res = await postJSON('/manage/create',{username:user,group,permissions});
+          alert(`用户创建成功，密码: ${res.password}`);
+        }catch(e){alert('创建失败: '+e.message)}
+      });
+    </script>
+  </body>
+</html>

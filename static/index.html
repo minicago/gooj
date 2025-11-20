@@ -3,18 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>登录 / 注册</title>
+    <title>登录</title>
     <style>body{font-family:Arial;padding:20px;max-width:700px;margin:auto}label{display:block;margin-top:8px}</style>
   </head>
   <body>
     <h1>欢迎</h1>
-    <div>
-      <h2>注册</h2>
-      <label>用户名 <input id="regUser" /></label>
-      <label>密码 <input id="regPass" type="password" /></label>
-      <button id="regBtn">注册</button>
-    </div>
-    <hr/>
     <div>
       <h2>登录</h2>
       <label>用户名 <input id="loginUser" /></label>
@@ -28,15 +21,6 @@
         if (!res.ok) throw new Error(await res.text());
         return await res.json();
       }
-      document.getElementById('regBtn').addEventListener('click', async ()=>{
-        try{
-          const user=document.getElementById('regUser').value.trim();
-          const pass=document.getElementById('regPass').value;
-          if(!user||!pass) return alert('请输入用户名和密码');
-          await postJSON('/register',{username:user,password:pass});
-          alert('注册成功，请登录');
-        }catch(e){alert('注册失败: '+e.message)}
-      });
       // auto-redirect if we have a recent login (within 5 minutes)
       (function(){
         const user = localStorage.getItem('username');

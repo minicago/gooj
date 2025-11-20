@@ -3,7 +3,7 @@ package sql_service
 import (
 	"encoding/json"
 	"errors"
-	"io/ioutil"
+	"math/rand"
 	"os"
 	"time"
 
@@ -17,10 +17,13 @@ var db *gorm.DB
 
 // Models
 type User struct {
-	ID        uint   `gorm:"primaryKey"`
-	Username  string `gorm:"uniqueIndex;size:128"`
-	Password  string
-	CreatedAt time.Time
+	ID          uint   `gorm:"primaryKey"`
+	Username    string `gorm:"uniqueIndex;size:128"`
+	Password    string
+	Group       string `gorm:"size:64"`  // User group
+	Permissions string `gorm:"size:256"` // Comma-separated permissions
+	CreatedAt   time.Time
+	CreatedBy   string `gorm:"size:128"` // Username of the creator
 }
 
 type Submission struct {
@@ -71,6 +74,9 @@ func Init(path string) error {
 	if _, err := os.Stat("data/problem_list.json"); err == nil {
 		_ = loadProblemsFromFile("data/problem_list.json")
 	}
+
+	EnsureSuperUserAndRoot()
+
 	return nil
 }
 
@@ -104,6 +110,19 @@ func CreateUser(username, password string) error {
 	return db.Create(&u).Error
 }
 
+// CreateUserWithGroup creates a user with a specific group and permissions
+func CreateUserWithGroup(username, password, group, permissions string) error {
+	if db == nil {
+		return errors.New("db not initialized")
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	u := User{Username: username, Password: string(hashed), Group: group, Permissions: permissions}
+	return db.Create(&u).Error
+}
+
 // AuthenticateUser verifies username/password
 func AuthenticateUser(username, password string) (bool, error) {
 	if db == nil {
@@ -120,6 +139,52 @@ func AuthenticateUser(username, password string) (bool, error) {
 		return false, nil
 	}
 	return true, nil
+}
+
+func PromotePermissions(username, newPermissions string) error {
+	if db == nil {
+		return errors.New("db not initialized")
+	}
+	var u User
+	if err := db.Where("username = ?", username).First(&u).Error; err != nil {
+		return err
+	}
+	u.Permissions = newPermissions
+	return db.Save(&u).Error
+}
+
+func QueryCreatedUserPassword(currentUsername, targetUsername string) (string, error) {
+	if db == nil {
+		return "", errors.New("db not initialized")
+	}
+	var currentUser, targetUser User
+	if err := db.Where("username = ?", currentUsername).First(&currentUser).Error; err != nil {
+		return "", err
+	}
+	if err := db.Where("username = ?", targetUsername).First(&targetUser).Error; err != nil {
+		return "", err
+	}
+	if targetUser.CreatedBy != currentUser.Username && currentUser.Username != "root" {
+		return "", errors.New("permission denied")
+	}
+	return targetUser.Password, nil
+}
+
+func DeleteCreatedUser(currentUsername, targetUsername string) error {
+	if db == nil {
+		return errors.New("db not initialized")
+	}
+	var currentUser, targetUser User
+	if err := db.Where("username = ?", currentUsername).First(&currentUser).Error; err != nil {
+		return err
+	}
+	if err := db.Where("username = ?", targetUsername).First(&targetUser).Error; err != nil {
+		return err
+	}
+	if targetUser.CreatedBy != currentUser.Username && currentUser.Username != "root" {
+		return errors.New("permission denied")
+	}
+	return db.Delete(&targetUser).Error
 }
 
 func CreateSubmission(username, problem, code string) (Submission, error) {
@@ -196,7 +261,7 @@ func GetLastSubmission(username, problem string) (Submission, []TestResult, erro
 
 // loadProblemsFromFile reads problem_list.json and inserts/updates Problem records
 func loadProblemsFromFile(path string) error {
-	b, err := ioutil.ReadFile(path)
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
@@ -256,4 +321,70 @@ func ListProblems(page, perPage int) ([]Problem, int64, error) {
 		return nil, 0, err
 	}
 	return probs, total, nil
+}
+
+func EnsureSuperUserAndRoot() error {
+	if db == nil {
+		return errors.New("db not initialized")
+	}
+
+	// Ensure super user group exists
+	var superGroupExists bool
+	db.Raw("SELECT EXISTS (SELECT 1 FROM users WHERE `group` = ?)", "super").Scan(&superGroupExists)
+	if !superGroupExists {
+		if err := db.Create(&User{Username: "super", Group: "super", Permissions: "all", CreatedBy: "root"}).Error; err != nil {
+			return err
+		}
+	}
+
+	// Ensure root user exists
+	var root User
+	password := generateStrongPassword()
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	if err := db.Where("username = ?", "root").First(&root).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			root = User{Username: "root", Password: string(hashedPassword), Group: "super", Permissions: "all", CreatedBy: "root"}
+			if err := db.Create(&root).Error; err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	} else {
+		// Update root password in case it already exists
+		root.Password = string(hashedPassword)
+		if err := db.Save(&root).Error; err != nil {
+			return err
+		}
+	}
+
+	// Save root password to file
+	if err := os.WriteFile("data/rootpassword.txt", []byte(password), 0644); err != nil {
+		return err
+	}
+
+	// Ensure root is in super group
+	if root.Group != "super" {
+		root.Group = "super"
+		if err := db.Save(&root).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func generateStrongPassword() string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	const length = 8
+	seed := time.Now().UnixNano()
+	randGen := rand.New(rand.NewSource(seed))
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[randGen.Intn(len(charset))]
+	}
+	return string(b)
 }
