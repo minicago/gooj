@@ -3,85 +3,16 @@ package sql_service
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/rand"
 	"os"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
-var db *gorm.DB
-
-// Models
-type User struct {
-	ID          uint   `gorm:"primaryKey"`
-	Username    string `gorm:"uniqueIndex;size:128"`
-	Password    string
-	Group       string `gorm:"size:64"`  // User group
-	Permissions string `gorm:"size:256"` // Comma-separated permissions
-	CreatedAt   time.Time
-	CreatedBy   string `gorm:"size:128"` // Username of the creator
-}
-
-type Submission struct {
-	ID          uint   `gorm:"primaryKey"`
-	Username    string `gorm:"index;size:128"`
-	Problem     string `gorm:"size:128"`
-	Code        string `gorm:"type:text"`
-	Status      string `gorm:"size:32"` // queued, running, ok, wa, compile_error, runtime_error
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	TestResults []TestResult `gorm:"foreignKey:SubmissionID"`
-}
-
-type TestResult struct {
-	ID           uint `gorm:"primaryKey"`
-	SubmissionID uint `gorm:"index"`
-	TestIndex    int  `gorm:"column:test_index"`
-	Passed       bool
-	Output       string `gorm:"type:text"`
-	Expected     string `gorm:"type:text"`
-	TimeMs       int
-	MemoryKB     int
-}
-
-type Problem struct {
-	ID          uint   `gorm:"primaryKey"`
-	Name        string `gorm:"uniqueIndex;size:128"`
-	Title       string `gorm:"size:256"`
-	Description string `gorm:"type:text"`
-	TestsCount  int
-	TimeLimitMs int
-	MemLimitMB  int
-}
-
-// Init initializes the sqlite database at path (create file if not exists)
-func Init(path string) error {
-	var err error
-	db, err = gorm.Open(sqlite.Open(path), &gorm.Config{})
-	db.Logger = logger.Default.LogMode(logger.Silent)
-	if err != nil {
-		return err
-	}
-	// migrate
-	if err := db.AutoMigrate(&User{}, &Submission{}, &TestResult{}, &Problem{}); err != nil {
-		return err
-	}
-	// try to load problems from data/problem_list.json if exists
-	if _, err := os.Stat("data/problem_list.json"); err == nil {
-		_ = loadProblemsFromFile("data/problem_list.json")
-	}
-
-	EnsureSuperUserAndRoot()
-
-	return nil
-}
-
-func DB() *gorm.DB { return db }
-
+// CreateUserIfNotExists registers a user with a plain password (hashed with bcrypt)
 func CreateUserIfNotExists(username string) error {
 	if db == nil {
 		return errors.New("db not initialized")
@@ -110,8 +41,8 @@ func CreateUser(username, password string) error {
 	return db.Create(&u).Error
 }
 
-// CreateUserWithGroup creates a user with a specific group and permissions
-func CreateUserWithGroup(username, password, group, permissions string) error {
+// CreateUserWithGroup creates a user with a specific group
+func CreateUserWithGroup(username, password, group string) error {
 	if db == nil {
 		return errors.New("db not initialized")
 	}
@@ -119,7 +50,9 @@ func CreateUserWithGroup(username, password, group, permissions string) error {
 	if err != nil {
 		return err
 	}
-	u := User{Username: username, Password: string(hashed), Group: group, Permissions: permissions}
+	// var groupData Group
+	// db.Where(&Group{Name: group}).First(&groupData)
+	u := User{Username: username, Password: string(hashed), GroupName: group}
 	return db.Create(&u).Error
 }
 
@@ -139,18 +72,6 @@ func AuthenticateUser(username, password string) (bool, error) {
 		return false, nil
 	}
 	return true, nil
-}
-
-func PromotePermissions(username, newPermissions string) error {
-	if db == nil {
-		return errors.New("db not initialized")
-	}
-	var u User
-	if err := db.Where("username = ?", username).First(&u).Error; err != nil {
-		return err
-	}
-	u.Permissions = newPermissions
-	return db.Save(&u).Error
 }
 
 func QueryCreatedUserPassword(currentUsername, targetUsername string) (string, error) {
@@ -323,16 +244,31 @@ func ListProblems(page, perPage int) ([]Problem, int64, error) {
 	return probs, total, nil
 }
 
-func EnsureSuperUserAndRoot() error {
+func EnsureSuperGroupAndRoot() error {
 	if db == nil {
 		return errors.New("db not initialized")
 	}
-
 	// Ensure super user group exists
-	var superGroupExists bool
-	db.Raw("SELECT EXISTS (SELECT 1 FROM users WHERE `group` = ?)", "super").Scan(&superGroupExists)
-	if !superGroupExists {
-		if err := db.Create(&User{Username: "super", Group: "super", Permissions: "all", CreatedBy: "root"}).Error; err != nil {
+
+	var superGroup Group
+	if err := db.Where(&Group{Name: "super"}).First(&superGroup).Error; err != nil {
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+
+			superGroup = Group{Name: "super", EditPermission: true, UserPermission: true, GroupPermission: true}
+			if err := db.Save(&superGroup).Error; err != nil {
+				return err
+			}
+		} else {
+
+			return err
+		}
+
+	} else {
+		superGroup.EditPermission = true
+		superGroup.GroupPermission = true
+		superGroup.UserPermission = true
+		if err := db.Save(&superGroup).Error; err != nil {
 			return err
 		}
 	}
@@ -344,34 +280,33 @@ func EnsureSuperUserAndRoot() error {
 	if err != nil {
 		return err
 	}
+
 	if err := db.Where("username = ?", "root").First(&root).Error; err != nil {
+
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			root = User{Username: "root", Password: string(hashedPassword), Group: "super", Permissions: "all", CreatedBy: "root"}
+			root = User{Username: "root", Password: string(hashedPassword), CreatedBy: "root", GroupName: "super"}
+			fmt.Println(root)
 			if err := db.Create(&root).Error; err != nil {
 				return err
 			}
 		} else {
 			return err
 		}
-	} else {
-		// Update root password in case it already exists
-		root.Password = string(hashedPassword)
-		if err := db.Save(&root).Error; err != nil {
-			return err
-		}
+	}
+
+	root.GroupName = "super"
+
+	// Update root password in case it already exists
+	root.Password = string(hashedPassword)
+
+	if err := db.Save(&root).Error; err != nil {
+		print(err.Error())
+		return err
 	}
 
 	// Save root password to file
 	if err := os.WriteFile("data/rootpassword.txt", []byte(password), 0644); err != nil {
 		return err
-	}
-
-	// Ensure root is in super group
-	if root.Group != "super" {
-		root.Group = "super"
-		if err := db.Save(&root).Error; err != nil {
-			return err
-		}
 	}
 
 	return nil

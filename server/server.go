@@ -10,6 +10,8 @@ import (
 	"github.com/minicago/gooj/cmd"
 	"github.com/minicago/gooj/file_service"
 	"github.com/minicago/gooj/judge"
+	"github.com/minicago/gooj/manage"
+	"github.com/minicago/gooj/sql_service"
 	"github.com/minicago/gooj/web"
 	"github.com/sevlyar/go-daemon"
 )
@@ -49,6 +51,7 @@ func listen(cmdChan chan string) {
 }
 
 func StartServer(isbackground bool) {
+
 	if isbackground {
 		cntxt := &daemon.Context{
 			WorkDir: "./",
@@ -61,10 +64,12 @@ func StartServer(isbackground bool) {
 			return
 		}
 	}
-
+	if err := sql_service.Init("data/app.db"); err != nil {
+		panic(err)
+	}
 	file_service.StartDefault()
 	judge.StartJudge()
-
+	manage.Init()
 	cmdChan := make(chan string)
 	shutdownChan := make(chan int)
 	go cmd.StartCmdServer(cmdChan, shutdownChan)

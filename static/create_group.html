@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>创建用户组</title>
+    <style>
+      body { font-family: Arial; padding: 20px; max-width: 700px; margin: auto; }
+      label { display: block; margin-top: 8px; }
+      .permissions { margin-top: 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>创建用户组</h1>
+    <label>用户组名称 <input id="groupName" /></label>
+    <div class="permissions">
+      <h2>选择权限</h2>
+      <label><input type="checkbox" value="edit_problems" /> 编辑题目</label>
+      <label><input type="checkbox" value="manage_users" /> 管理用户</label>
+      <label><input type="checkbox" value="create_groups" /> 创建用户组</label>
+      <label><input type="checkbox" value="create_users" /> 创建用户</label>
+    </div>
+    <button id="createGroupBtn">创建用户组</button>
+
+    <script>
+      async function postJSON(url, obj) {
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
+        if (!res.ok) throw new Error(await res.text());
+        return await res.json();
+      }
+
+      document.getElementById('createGroupBtn').addEventListener('click', async () => {
+        try {
+          const groupName = document.getElementById('groupName').value.trim();
+          if (!groupName) return alert('请输入用户组名称');
+
+          const permissions = Array.from(document.querySelectorAll('.permissions input:checked')).map(cb => cb.value);
+          if (permissions.length === 0) return alert('请选择至少一个权限');
+
+          await postJSON('/api/create_group', { groupName, permissions });
+          alert('用户组创建成功');
+          location.href = '/manage';
+        } catch (e) {
+          alert('创建失败: ' + e.message);
+        }
+      });
+    </script>
+  </body>
+</html>

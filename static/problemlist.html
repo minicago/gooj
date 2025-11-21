@@ -14,6 +14,9 @@
   <body>
     <h1>题目</h1>
     <div>已登录: <span id="who"></span> <button id="logout">登出</button></div>
+    <div id="manageUsersOption" style="display:none;margin-bottom:12px">
+      <a href="/manage">管理用户</a>
+    </div>
     <table>
       <thead><tr><th>ID</th><th>名称</th><th>标题</th><th>操作</th></tr></thead>
       <tbody id="tbody"></tbody>
@@ -48,6 +51,18 @@
         const total = j.total
         const pages = Math.ceil(total / per)
         document.getElementById('pageInfo').textContent = `第 ${page} / ${pages} 页，总 ${total} 道题`
+
+        // Check user permissions for managing users
+        const user = localStorage.getItem('username');
+        if (user) {
+          const permRes = await fetch('/api/user_permissions?username=' + encodeURIComponent(user) + "&permission=UserPermission");
+          if (permRes.ok) {
+            const perms = await permRes.json();
+            if (perms.can_manage_users) {
+              document.getElementById('manageUsersOption').style.display = 'block';
+            }
+          }
+        }
       }
       document.getElementById('prev').addEventListener('click', ()=>{ if(page>1){page--; load()} })
       document.getElementById('next').addEventListener('click', ()=>{ page++; load() })

@@ -4,9 +4,7 @@ import (
 	"flag"
 
 	"github.com/minicago/gooj/cmd"
-	"github.com/minicago/gooj/judge"
 	"github.com/minicago/gooj/server"
-	"github.com/minicago/gooj/sql_service"
 )
 
 func main() {
@@ -18,14 +16,16 @@ func main() {
 	flag.BoolVar(&background, "background", false, "--background = true | false")
 	flag.Parse()
 
+	// // Initialize the SQLite database
+	// if err := sql_service.Init("data/app.db"); err != nil {
+	// 	panic("Failed to initialize database: " + err.Error())
+	// }
+
 	switch method {
 	case "run":
 		// start file service and judge goroutine before starting server
 		// initialize sqlite DB (data/app.db)
-		if err := sql_service.Init("data/app.db"); err != nil {
-			panic(err)
-		}
-		judge.StartJudge()
+
 		server.StartServer(background)
 	case "cmd":
 		cmd.StartCmdConsole()

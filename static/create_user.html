@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>创建用户</title>
+    <style>
+      body { font-family: Arial; padding: 20px; max-width: 700px; margin: auto; }
+      label { display: block; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>创建用户</h1>
+    <label>用户名 <input id="username" /></label>
+    <label>选择用户组
+      <select id="userGroup">
+        <option value="">加载中...</option>
+      </select>
+    </label>
+    <button id="createUserBtn">创建用户</button>
+
+    <script>
+      async function postJSON(url, obj) {
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
+        if (!res.ok) throw new Error(await res.text());
+        return await res.json();
+      }
+
+      async function loadGroups() {
+        const res = await fetch('/api/groups');
+        if (!res.ok) {
+          alert('加载用户组失败');
+          return;
+        }
+        const groups = await res.json();
+        const select = document.getElementById('userGroup');
+        select.innerHTML = '<option value="">请选择用户组</option>';
+        groups.forEach(group => {
+          const option = document.createElement('option');
+          option.value = group.name;
+          option.textContent = group.name;
+          select.appendChild(option);
+        });
+      }
+
+      document.getElementById('createUserBtn').addEventListener('click', async () => {
+        try {
+          const username = document.getElementById('username').value.trim();
+          const group = document.getElementById('userGroup').value;
+          if (!username || !group) return alert('请输入用户名并选择用户组');
+
+          const res = await postJSON('/api/create_user', { username, group });
+          alert(`用户创建成功，密码: ${res.password}`);
+          location.href = '/manage';
+        } catch (e) {
+          alert('创建失败: ' + e.message);
+        }
+      });
+
+      loadGroups();
+    </script>
+  </body>
+</html>

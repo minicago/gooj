@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/minicago/gooj/manage"
 )
 
 // NewRouter builds and returns the HTTP handler for the web endpoints
@@ -37,6 +38,10 @@ func NewRouter() http.Handler {
 	r.HandleFunc("/last_submission", LastSubmissionHandler).Methods("GET")
 	r.HandleFunc("/result/{user}/{problem}", ResultHandler).Methods("GET")
 	r.HandleFunc("/codefile/{user}/{problem}", CodeFileHandler).Methods("GET")
+	// Added `/api/users` endpoint to list all users
+	r.HandleFunc("/api/users", manage.ListUsersHandler).Methods("GET")
+	r.HandleFunc("/api/groups", manage.ListGroupsHandler).Methods("GET")
+	r.HandleFunc("/api/user_permissions", manage.GetUserPermissionsHandler).Methods("GET")
 
 	// static files under /static/
 	fs := http.FileServer(http.Dir("static/"))

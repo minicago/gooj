@@ -13,6 +13,9 @@
     <div id="statement" style="white-space:pre-wrap;border:1px solid #eee;padding:12px;background:#fff"></div>
     <div style="margin-top:16px">
       <a id="toSubmit" href="#">去提交此题</a>
+      <span id="editOption" style="display:none;margin-left:12px">
+        <a href="#" id="editProblem">编辑题目</a>
+      </span>
     </div>
 
     <script>
@@ -37,6 +40,19 @@
           document.getElementById('limits').textContent = txt;
         }
         document.getElementById('toSubmit').href = '/submit?problem=' + encodeURIComponent(id);
+
+        // Check user permissions for editing
+        const user = localStorage.getItem('username');
+        if (user) {
+          const permRes = await fetch('/api/user_permissions?username=' + encodeURIComponent(user) + "&permission=EditPermission");
+          if (permRes.ok) {
+            const perms = await permRes.json();
+            if (perms.can_edit_problems) {
+              document.getElementById('editOption').style.display = 'inline';
+              document.getElementById('editProblem').href = '/edit?problem=' + encodeURIComponent(id);
+            }
+          }
+        }
       }
       load();
     </script>
