@@ -47,7 +47,7 @@
           const permRes = await fetch('/api/user_permissions?username=' + encodeURIComponent(user) + "&permission=EditPermission");
           if (permRes.ok) {
             const perms = await permRes.json();
-            if (perms.can_edit_problems) {
+            if (perms.permited) {
               document.getElementById('editOption').style.display = 'inline';
               document.getElementById('editProblem').href = '/edit?problem=' + encodeURIComponent(id);
             }

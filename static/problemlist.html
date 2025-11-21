@@ -58,7 +58,7 @@
           const permRes = await fetch('/api/user_permissions?username=' + encodeURIComponent(user) + "&permission=UserPermission");
           if (permRes.ok) {
             const perms = await permRes.json();
-            if (perms.can_manage_users) {
+            if (perms.permited) {
               document.getElementById('manageUsersOption').style.display = 'block';
             }
           }
