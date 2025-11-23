@@ -3,7 +3,6 @@ package sql_service
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"math/rand"
 	"os"
 	"time"
@@ -42,7 +41,7 @@ func CreateUser(username, password string) error {
 }
 
 // CreateUserWithGroup creates a user with a specific group
-func CreateUserWithGroup(username, password, group string) error {
+func CreateUserWithGroup(username, password, group, createdBy string) error {
 	if db == nil {
 		return errors.New("db not initialized")
 	}
@@ -52,7 +51,7 @@ func CreateUserWithGroup(username, password, group string) error {
 	}
 	// var groupData Group
 	// db.Where(&Group{Name: group}).First(&groupData)
-	u := User{Username: username, Password: string(hashed), GroupName: group}
+	u := User{Username: username, Password: string(hashed), GroupName: group, CreatedBy: createdBy}
 	return db.Create(&u).Error
 }
 
@@ -74,21 +73,51 @@ func AuthenticateUser(username, password string) (bool, error) {
 	return true, nil
 }
 
-func QueryCreatedUserPassword(currentUsername, targetUsername string) (string, error) {
+// func QueryCreatedUserPassword(currentUsername, targetUsername string) (string, error) {
+// 	if db == nil {
+// 		return "", errors.New("db not initialized")
+// 	}
+// 	var currentUser, targetUser User
+// 	if err := db.Where("username = ?", currentUsername).First(&currentUser).Error; err != nil {
+// 		return "", err
+// 	}
+// 	if err := db.Where("username = ?", targetUsername).First(&targetUser).Error; err != nil {
+// 		return "", err
+// 	}
+// 	if !currentUser.Group.UserPermission || targetUser.CreatedBy != currentUser.Username && !currentUser.Group.GroupPermission {
+// 		return "", errors.New("permission denied")
+// 	}
+// 	return targetUser.Password, nil
+// }
+
+func ResetCreatedUserPassword(currentUsername, targetUsername, newPassword string) error {
 	if db == nil {
-		return "", errors.New("db not initialized")
+		return errors.New("db not initialized")
 	}
 	var currentUser, targetUser User
-	if err := db.Where("username = ?", currentUsername).First(&currentUser).Error; err != nil {
-		return "", err
+	if err := db.Preload("Group").Where("username = ?", currentUsername).First(&currentUser).Error; err != nil {
+		return err
 	}
 	if err := db.Where("username = ?", targetUsername).First(&targetUser).Error; err != nil {
-		return "", err
+		return err
 	}
-	if targetUser.CreatedBy != currentUser.Username && currentUser.Username != "root" {
-		return "", errors.New("permission denied")
+
+	if !currentUser.Group.UserPermission || targetUser.CreatedBy != currentUser.Username && !currentUser.Group.GroupPermission {
+		return errors.New("permission denied")
 	}
-	return targetUser.Password, nil
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	targetUser.Password = string(hashedPassword)
+
+	if err := db.Save(&targetUser).Error; err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func DeleteCreatedUser(currentUsername, targetUsername string) error {
@@ -96,13 +125,14 @@ func DeleteCreatedUser(currentUsername, targetUsername string) error {
 		return errors.New("db not initialized")
 	}
 	var currentUser, targetUser User
-	if err := db.Where("username = ?", currentUsername).First(&currentUser).Error; err != nil {
+	if err := db.Preload("Group").Where("username = ?", currentUsername).First(&currentUser).Error; err != nil {
 		return err
 	}
 	if err := db.Where("username = ?", targetUsername).First(&targetUser).Error; err != nil {
 		return err
 	}
-	if targetUser.CreatedBy != currentUser.Username && currentUser.Username != "root" {
+
+	if !currentUser.Group.UserPermission || targetUser.CreatedBy != currentUser.Username && !currentUser.Group.GroupPermission {
 		return errors.New("permission denied")
 	}
 	return db.Delete(&targetUser).Error
@@ -285,7 +315,6 @@ func EnsureSuperGroupAndRoot() error {
 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			root = User{Username: "root", Password: string(hashedPassword), CreatedBy: "root", GroupName: "super"}
-			fmt.Println(root)
 			if err := db.Create(&root).Error; err != nil {
 				return err
 			}
@@ -322,4 +351,28 @@ func generateStrongPassword() string {
 		b[i] = charset[randGen.Intn(len(charset))]
 	}
 	return string(b)
+}
+
+func ResetUserPassword(username string, newPassword string) error {
+	if db == nil {
+		return errors.New("db not initialized")
+	}
+
+	var user User
+	if err := db.Where("username = ?", username).First(&user).Error; err != nil {
+		return err
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	user.Password = string(hashedPassword)
+
+	if err := db.Save(&user).Error; err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -2,11 +2,9 @@ package manage
 
 import (
 	"encoding/json"
-	"errors"
 	"log"
 	"math/rand"
 	"net/http"
-	"reflect"
 	"time"
 
 	"gorm.io/gorm"
@@ -32,17 +30,52 @@ func CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	var req reqBody
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	if req.Username == "" || req.Group == "" || req.Permissions == "" {
+	// permissions are optional for now; require username and group
+	if req.Username == "" || req.Group == "" {
 		http.Error(w, "missing fields", http.StatusBadRequest)
 		return
 	}
 	password := generateStrongPassword()
-	if err := sql_service.CreateUserWithGroup(req.Username, password, req.Group); err != nil {
+	// get creator from request context (set by auth middleware)
+	creator := CurrentUsername(r)
+
+	if err := sql_service.CreateUserWithGroup(req.Username, password, req.Group, creator); err != nil {
 		http.Error(w, "create user failed", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "password": password})
+}
+
+// CreateGroupHandler creates a new user group with specified permissions
+func CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
+	type reqBody struct {
+		GroupName   string   `json:"groupName"`
+		Permissions []string `json:"permissions"`
+	}
+	var req reqBody
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.GroupName == "" || len(req.Permissions) == 0 {
+		http.Error(w, "missing fields", http.StatusBadRequest)
+		return
+	}
+	g := sql_service.Group{Name: req.GroupName}
+	for _, p := range req.Permissions {
+		switch p {
+		case "EditPermission":
+			g.EditPermission = true
+		case "UserPermission":
+			g.UserPermission = true
+		case "GroupPermission":
+			g.GroupPermission = true
+		}
+	}
+	if err := db.Create(&g).Error; err != nil {
+		http.Error(w, "create group failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func generateStrongPassword() string {
@@ -63,19 +96,33 @@ func ListUsersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var users []sql_service.User
-	if err := db.Preload("Group").Find(&users).Error; err != nil {
-		http.Error(w, "failed to fetch users", http.StatusInternalServerError)
-		return
+
+	currentUser := CurrentUsername(r)
+
+	if !CheckUserPermission(currentUser, "GroupPermission") {
+		if err := db.Preload("Group").Where(&sql_service.User{CreatedBy: currentUser}).Find(&users).Error; err != nil {
+			http.Error(w, "failed to fetch users", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		if err := db.Preload("Group").Find(&users).Error; err != nil {
+			http.Error(w, "failed to fetch users", http.StatusInternalServerError)
+			return
+		}
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(users)
 }
 
 // ListGroupsHandler returns all groups and their details
 func ListGroupsHandler(w http.ResponseWriter, r *http.Request) {
-
 	if db == nil {
 		http.Error(w, "database not initialized", http.StatusInternalServerError)
+		return
+	}
+	if CheckUserPermission(CurrentUsername(r), "UserPermission") == false {
+		http.Error(w, "permission denied", http.StatusForbidden)
 		return
 	}
 	var groups []sql_service.Group
@@ -92,24 +139,51 @@ func GetUserPermissionsHandler(w http.ResponseWriter, r *http.Request) {
 	username := r.URL.Query().Get("username")
 	permission := r.URL.Query().Get("permission")
 
-	if username == "" {
+	if username == "" || permission == "" {
+		http.Error(w, "missing username or permission", http.StatusBadRequest)
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"permited": CheckUserPermission(username, permission),
+	})
+
+}
+
+func ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
+	type reqBody struct {
+		Username string `json:"username"`
+	}
+	var req reqBody
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.Username == "" {
 		http.Error(w, "missing username", http.StatusBadRequest)
 		return
 	}
-	var user sql_service.User
+	password := generateStrongPassword()
+	if err := sql_service.ResetCreatedUserPassword(CurrentUsername(r), req.Username, password); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "password": password})
+}
 
-	if err := db.Preload("Group").Where("username = ? ", username).First(&user).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			http.Error(w, "not permitted", http.StatusNotFound)
-			return
-		}
-		http.Error(w, "failed to fetch user", http.StatusInternalServerError)
+func DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
+	type reqBody struct {
+		Username string `json:"username"`
+	}
+	var req reqBody
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.Username == "" {
+		http.Error(w, "missing username", http.StatusBadRequest)
 		return
 	}
 
+	if err := sql_service.DeleteCreatedUser(CurrentUsername(r), req.Username); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"permited": reflect.ValueOf(user.Group).FieldByName(permission).Bool(),
-	})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }

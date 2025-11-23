@@ -12,9 +12,9 @@
       <thead>
         <tr>
           <th>用户名</th>
-          <th>密码</th>
           <th>用户组</th>
-          <th>权限</th>
+          <th>创建者</th>
+          <th>重置密码</th>
         </tr>
       </thead>
       <tbody id="userTable"></tbody>
@@ -43,14 +43,42 @@
         tbody.innerHTML = '';
         users.forEach(user => {
           const tr = document.createElement('tr');
+          // JSON from Go exports fields with capitalized names (Username, GroupName, CreatedBy)
+          const username = user.Username || user.username || '';
+          const groupName = user.GroupName || (user.Group && (user.Group.Name || user.Group.name)) || '';
+          const createdBy = user.CreatedBy || user.createdBy || '';
           tr.innerHTML = `
-            <td>${user.username}</td>
-            <td>${user.password}</td>
-            <td>${user.group}</td>
-            <td>${user.permissions}</td>
+            <td>${username}</td>
+            <td>${groupName}</td>
+            <td>${createdBy}</td>
+            <td>
+              <button onclick="resetPassword('${username}')">重置密码</button>
+              <button onclick="deleteUser('${username}')">删除用户</button>
+            </td>
           `;
           tbody.appendChild(tr);
         });
+      }
+
+      async function resetPassword(username) {
+        if (!confirm(`确定要重置用户 ${username} 的密码吗？`)) return;
+        try {
+          const res = await postJSON('/api/reset_password', { username });
+          alert(`密码已重置，新密码: ${res.password}`);
+        } catch (e) {
+          alert('重置密码失败: ' + e.message);
+        }
+      }
+
+      async function deleteUser(username) {
+        if (!confirm(`确定要删除用户 ${username} 吗？此操作不可恢复。`)) return;
+        try {
+          await postJSON('/api/delete_user', { username });
+          alert('用户已删除');
+          loadUsers();
+        } catch (e) {
+          alert('删除用户失败: ' + e.message);
+        }
       }
 
       document.getElementById('createUser').addEventListener('click', () => {

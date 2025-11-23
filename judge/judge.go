@@ -175,7 +175,7 @@ func processJob(sub sql_service.Submission) {
 	var cout bytes.Buffer
 	ccmd.Stderr = &cerr
 	ccmd.Stdout = &cout
-	log.Printf("running compile: docker %s", strings.Join(dockerCompileArgs, " "))
+	// log.Printf("running compile: docker %s", strings.Join(dockerCompileArgs, " "))
 	if err := ccmd.Run(); err != nil {
 		// compile error
 		status = "compile_error"

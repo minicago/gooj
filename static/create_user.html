@@ -37,8 +37,9 @@
         select.innerHTML = '<option value="">请选择用户组</option>';
         groups.forEach(group => {
           const option = document.createElement('option');
-          option.value = group.name;
-          option.textContent = group.name;
+          // Go JSON exports struct fields capitalized (Name)
+          option.value = group.Name || group.name || '';
+          option.textContent = group.Name || group.name || '';
           select.appendChild(option);
         });
       }

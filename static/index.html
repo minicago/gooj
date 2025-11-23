@@ -27,10 +27,19 @@
         return await res.json();
       }
       // auto-redirect if we have a recent login (within 5 minutes)
+
       (function(){
+
+        function getTokenFromCookie() {
+          const match = document.cookie.match(new RegExp('(^| )token=([^;]+)'));
+          if (match) return match[2];
+          return null;
+        }
+
         const user = localStorage.getItem('username');
         const ts = parseInt(localStorage.getItem('login_ts') || '0', 10);
-        if (user && ts && (Date.now() - ts) < 5*60*1000) {
+        const token = getTokenFromCookie() || "";
+        if (token != "") {
           // still valid
           location.href = '/problemlist';
         }
@@ -41,10 +50,13 @@
           const user=document.getElementById('loginUser').value.trim();
           const pass=document.getElementById('loginPass').value;
           if(!user||!pass) return alert('请输入用户名和密码');
-          await postJSON('/login',{username:user,password:pass});
+          const res = await postJSON('/login',{username:user,password:pass});
           // store username locally and go to problem list; save timestamp for 5min remember
           localStorage.setItem('username', user);
           localStorage.setItem('login_ts', String(Date.now()));
+          if (res && res.token) {
+            localStorage.setItem('auth_token', res.token);
+          }
           location.href='/problemlist';
         }catch(e){alert('登录失败: '+e.message)}
       });

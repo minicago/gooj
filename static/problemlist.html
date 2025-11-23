@@ -36,7 +36,12 @@
       const per = 10
       let page = 1
       document.getElementById('who').textContent = localStorage.getItem('username') || '(未登录)'
-      document.getElementById('logout').addEventListener('click', ()=>{localStorage.removeItem('username'); location.href='/'})
+      document.getElementById('logout').addEventListener('click', 
+        ()=>{
+          document.cookie="token=; Max-Age=0; path=/"
+          localStorage.removeItem('username')
+          location.href='/'
+      })
 
       async function load() {
         const res = await fetch(`/problems?page=${page}&per=${per}`)

@@ -4,12 +4,20 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/minicago/gooj/edit"
 	"github.com/minicago/gooj/manage"
 )
 
+// contextKey is a private type used for storing values in request contexts
+// to avoid collisions with other context keys across packages.
+
 // NewRouter builds and returns the HTTP handler for the web endpoints
+
 func NewRouter() http.Handler {
 	r := mux.NewRouter()
+
+	// global auth middleware: protect all routes except public ones
+	r.Use(manage.AuthMiddleWare)
 
 	r.HandleFunc("/message", MessageHandler).Methods("POST")
 	// delete a message by its index (0-based)
@@ -30,6 +38,20 @@ func NewRouter() http.Handler {
 	r.HandleFunc("/problemlist", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "static/problemlist.html")
 	}).Methods("GET")
+	r.HandleFunc("/manage", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "static/manage.html")
+	}).Methods("GET")
+
+	r.HandleFunc("/create_user", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "static/create_user.html")
+	}).Methods("GET")
+
+	r.HandleFunc("/create_group", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "static/create_group.html")
+	}).Methods("GET")
+	r.HandleFunc("/edit", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "static/edit.html")
+	}).Methods("GET")
 	// API to fetch statement.md and config.json for a problem
 	r.HandleFunc("/api/problem/{id}", ProblemDataHandler).Methods("GET")
 	r.HandleFunc("/problems", ProblemsHandler).Methods("GET")
@@ -42,6 +64,16 @@ func NewRouter() http.Handler {
 	r.HandleFunc("/api/users", manage.ListUsersHandler).Methods("GET")
 	r.HandleFunc("/api/groups", manage.ListGroupsHandler).Methods("GET")
 	r.HandleFunc("/api/user_permissions", manage.GetUserPermissionsHandler).Methods("GET")
+
+	// API to create a user (admin)
+	r.HandleFunc("/api/create_user", manage.CreateUserHandler).Methods("POST")
+	r.HandleFunc("/api/create_group", manage.CreateGroupHandler).Methods("POST")
+	r.HandleFunc("/api/reset_password", manage.ResetPasswordHandler).Methods("POST")
+	r.HandleFunc("/api/delete_user", manage.DeleteUserHandler).Methods("POST")
+
+	// Edit endpoints for modifying statements and adding test data
+	r.HandleFunc("/edit/modify", edit.ModifyProblemStatementHandler).Methods("POST")
+	r.HandleFunc("/edit/add_test", edit.AddTestDataHandler).Methods("POST")
 
 	// static files under /static/
 	fs := http.FileServer(http.Dir("static/"))
