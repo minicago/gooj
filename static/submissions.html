@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>提交记录 - Gooj</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .submissions-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .filters {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .filter-btn {
+            padding: 8px 16px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .filter-btn:hover {
+            background-color: #0056b3;
+        }
+        
+        .submissions-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        
+        .submissions-table th,
+        .submissions-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .submissions-table th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }
+        
+        .submissions-table tr:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        
+        .status-ok {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .status-wa {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status-tle {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        
+        .status-mle {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .status-compile_error,
+        .status-runtime_error {
+            background-color: #f5c6cb;
+            color: #721c24;
+        }
+        
+        .status-queued,
+        .status-running {
+            background-color: #cce5ff;
+            color: #004085;
+        }
+        
+        .view-btn {
+            padding: 4px 8px;
+            background-color: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .view-btn:hover {
+            background-color: #545b62;
+        }
+        
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .page-btn {
+            padding: 8px 12px;
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .page-btn:hover:not(:disabled) {
+            background-color: #e9ecef;
+        }
+        
+        .page-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .current-page {
+            padding: 8px 12px;
+            background-color: #007bff;
+            color: white;
+            border-radius: 4px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="submissions-container">
+        <div class="header">
+            <h1>提交记录</h1>
+            <div>
+                <button onclick="window.location.href='/problemlist'" class="filter-btn">题目列表</button>
+                <button onclick="window.location.href='/submit'" class="filter-btn">提交代码</button>
+            </div>
+        </div>
+        
+        <div class="filters">
+            <input type="text" id="problemFilter" class="filter-input" placeholder="题目名称" onkeypress="handleFilterKeyPress(event)">
+            <input type="text" id="userFilter" class="filter-input" placeholder="用户名" onkeypress="handleFilterKeyPress(event)">
+            <button onclick="applyFilters()" class="filter-btn">筛选</button>
+            <button onclick="clearFilters()" class="filter-btn">清除筛选</button>
+        </div>
+        
+        <div id="loading" class="loading">加载中...</div>
+        
+        <table id="submissionsTable" class="submissions-table" style="display: none;">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>用户名</th>
+                    <th>题目</th>
+                    <th>状态</th>
+                    <th>时间</th>
+                    <th>内存</th>
+                    <th>提交时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="submissionsBody">
+                <!-- 数据将通过JavaScript填充 -->
+            </tbody>
+        </table>
+        
+        <div id="noData" class="no-data" style="display: none;">暂无提交记录</div>
+        
+        <div id="pagination" class="pagination" style="display: none;">
+            <button id="prevPage" class="page-btn" onclick="changePage(currentPage - 1)">上一页</button>
+            <span id="pageInfo" class="current-page">第 1 页</span>
+            <button id="nextPage" class="page-btn" onclick="changePage(currentPage + 1)">下一页</button>
+        </div>
+    </div>
+
+    <script>
+        let currentPage = 1;
+        const limit = 20;
+        let totalPages = 1;
+        let currentProblem = '';
+        let currentUser = '';
+
+        function handleFilterKeyPress(event) {
+            if (event.key === 'Enter') {
+                applyFilters();
+            }
+        }
+
+        function applyFilters() {
+            currentProblem = document.getElementById('problemFilter').value.trim();
+            currentUser = document.getElementById('userFilter').value.trim();
+            currentPage = 1;
+            loadSubmissions();
+        }
+
+        function clearFilters() {
+            document.getElementById('problemFilter').value = '';
+            document.getElementById('userFilter').value = '';
+            currentProblem = '';
+            currentUser = '';
+            currentPage = 1;
+            loadSubmissions();
+        }
+
+        function changePage(page) {
+            if (page < 1 || page > totalPages) return;
+            currentPage = page;
+            loadSubmissions();
+        }
+
+        function formatStatus(status) {
+            const statusMap = {
+                'Accepted': '通过',
+                'Not Accepted': '未通过',
+                'ok': '通过',
+                'wa': '答案错误',
+                'tle': '时间超限',
+                'mle': '内存超限',
+                'compile_error': '编译错误',
+                'runtime_error': '运行时错误',
+                'queued': '等待评测',
+                'running': '评测中'
+            };
+            return statusMap[status] || status;
+        }
+
+        function formatStatusClass(status) {
+            return `status-${status}`;
+        }
+
+        function formatTime(ms) {
+            if (ms === 0) return '-';
+            return `${ms}ms`;
+        }
+
+        function formatMemory(kb) {
+            if (kb === 0) return '-';
+            if (kb < 1024) return `${kb}KB`;
+            return `${(kb / 1024).toFixed(2)}MB`;
+        }
+
+        function formatDateTime(dateStr) {
+            const date = new Date(dateStr);
+            return date.toLocaleString('zh-CN');
+        }
+
+        function calculateMaxTimeMemory(submission) {
+            let maxTime = 0;
+            let maxMemory = 0;
+            
+            if (submission.TestResults && submission.TestResults.length > 0) {
+                submission.TestResults.forEach(test => {
+                    if (test.TimeMs > maxTime) maxTime = test.TimeMs;
+                    if (test.MemoryKB > maxMemory) maxMemory = test.MemoryKB;
+                });
+            }
+            
+            return { maxTime, maxMemory };
+        }
+
+        async function loadSubmissions() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('submissionsTable').style.display = 'none';
+            document.getElementById('noData').style.display = 'none';
+            document.getElementById('pagination').style.display = 'none';
+
+            try {
+                let url = `/api/submissions?page=${currentPage}&limit=${limit}`;
+                if (currentProblem) url += `&problem=${encodeURIComponent(currentProblem)}`;
+                if (currentUser) url += `&username=${encodeURIComponent(currentUser)}`;
+
+                const response = await fetch(url, {
+                    credentials: 'include'
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                document.getElementById('loading').style.display = 'none';
+                
+                if (data.submissions.length === 0) {
+                    document.getElementById('noData').style.display = 'block';
+                    return;
+                }
+
+                const tbody = document.getElementById('submissionsBody');
+                tbody.innerHTML = '';
+
+                data.submissions.forEach(submission => {
+                    const { maxTime, maxMemory } = calculateMaxTimeMemory(submission);
+                    const row = document.createElement('tr');
+                    
+                    row.innerHTML = `
+                        <td>${submission.ID}</td>
+                        <td>${submission.Username}</td>
+                        <td>${submission.ProblemID}</td>
+                        <td>
+                            <span class="status-badge ${formatStatusClass(submission.Status)}">
+                                ${formatStatus(submission.Status)}
+                            </span>
+                        </td>
+                        <td>${formatTime(maxTime)}</td>
+                        <td>${formatMemory(maxMemory)}</td>
+                        <td>${formatDateTime(submission.CreatedAt)}</td>
+                        <td>
+                            <button class="view-btn" onclick="viewSubmission(${submission.ID})">查看详情</button>
+                        </td>
+                    `;
+                    
+                    tbody.appendChild(row);
+                });
+
+                document.getElementById('submissionsTable').style.display = 'table';
+                
+                // 更新分页信息
+                totalPages = Math.ceil(data.total / limit);
+                document.getElementById('pageInfo').textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+                
+                document.getElementById('prevPage').disabled = currentPage <= 1;
+                document.getElementById('nextPage').disabled = currentPage >= totalPages;
+                
+                document.getElementById('pagination').style.display = 'flex';
+
+            } catch (error) {
+                console.error('Error loading submissions:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('noData').style.display = 'block';
+                document.getElementById('noData').textContent = '加载失败，请刷新重试';
+            }
+        }
+
+        function viewSubmission(id) {
+            window.location.href = `/submission/${id}`;
+        }
+
+        // 页面加载时获取提交记录
+        document.addEventListener('DOMContentLoaded', loadSubmissions);
+    </script>
+</body>
+</html>

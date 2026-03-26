@@ -3,21 +3,28 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>登录</title>
-    <style>body{font-family:Arial;padding:20px;max-width:700px;margin:auto}label{display:block;margin-top:8px}</style>
+    <title>登录 - Gooj</title>
+    <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
-    <h1>欢迎</h1>
-    <nav>
-      <a href="/problemlist">题目列表</a> |
-      <a href="/submit">提交页面</a> |
-      <a href="/postboard">公告板</a>
-    </nav>
-    <div>
-      <h2>登录</h2>
-      <label>用户名 <input id="loginUser" /></label>
-      <label>密码 <input id="loginPass" type="password" /></label>
-      <button id="loginBtn">登录</button>
+    <div class="login-container">
+      <h1>欢迎</h1>
+      <nav>
+        <a href="/problemlist">题目列表</a>
+        <a href="/submit">提交页面</a>
+        <a href="/postboard">公告板</a>
+        <a href="/register">用户注册</a>
+      </nav>
+      <div class="card">
+        <h2>登录</h2>
+        <form id="loginForm" class="form-group">
+          <label>用户名</label>
+          <input id="loginUser" type="text" placeholder="请输入用户名" />
+          <label style="margin-top: 16px">密码</label>
+          <input id="loginPass" type="password" placeholder="请输入密码" />
+          <button id="loginBtn" style="margin-top: 24px; width: 100%">登录</button>
+        </form>
+      </div>
     </div>
 
     <script>
@@ -46,10 +53,19 @@
       })();
 
       document.getElementById('loginBtn').addEventListener('click', async ()=>{
+        const btn = document.getElementById('loginBtn');
+        btn.disabled = true;
+        btn.textContent = '登录中...';
+
         try{
           const user=document.getElementById('loginUser').value.trim();
           const pass=document.getElementById('loginPass').value;
-          if(!user||!pass) return alert('请输入用户名和密码');
+          if(!user||!pass) {
+            alert('请输入用户名和密码');
+            btn.disabled = false;
+            btn.textContent = '登录';
+            return;
+          }
           const res = await postJSON('/login',{username:user,password:pass});
           // store username locally and go to problem list; save timestamp for 5min remember
           localStorage.setItem('username', user);
@@ -57,8 +73,23 @@
           if (res && res.token) {
             localStorage.setItem('auth_token', res.token);
           }
+          // 登录成功，跳转到题目列表
           location.href='/problemlist';
-        }catch(e){alert('登录失败: '+e.message)}
+        }catch(e){
+          let errorMsg = '登录失败';
+          if(e.message.includes('invalid credentials')) {
+            errorMsg = '用户名或密码错误';
+          } else if(e.message.includes('missing fields')) {
+            errorMsg = '请填写完整的登录信息';
+          } else if(e.message.includes('internal error')) {
+            errorMsg = '服务器内部错误，请稍后重试';
+          } else {
+            errorMsg = '登录失败: ' + e.message;
+          }
+          alert(errorMsg);
+          btn.disabled = false;
+          btn.textContent = '登录';
+        }
       });
     </script>
   </body>

@@ -13,7 +13,7 @@ import (
 // SubmitRequest represents the JSON payload sent from the /code page
 type SubmitRequest struct {
 	Username string `json:"username"`
-	Problem  string `json:"problem"`
+	Problem  string `json:"problem"` // Can be ID or Name
 	Code     string `json:"code"`
 }
 
@@ -32,6 +32,23 @@ func SubmitHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve problem ID or Name to actual problem name for consistency
+	problemID := uint(0)
+	db := sql_service.DB()
+	if db != nil {
+		// Try to find problem by ID
+		var problem sql_service.Problem
+		if err := db.First(&problem, req.Problem).Error; err == nil {
+			// Found by ID, store the Name instead
+			problemID = problem.ID
+		} else {
+			// Try to find by Name
+			if err := db.Where("name = ?", req.Problem).First(&problem).Error; err == nil {
+				problemID = problem.ID
+			}
+		}
+	}
+
 	// prepare directories and save code
 	// userDir := filepath.Join("data", "user", req.Username)
 	// codePath := filepath.Join(userDir, req.Problem+".cpp")
@@ -40,7 +57,7 @@ func SubmitHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	sub, err := sql_service.CreateSubmission(req.Username, req.Problem, req.Code)
+	sub, err := sql_service.CreateSubmission(req.Username, problemID, req.Code)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -71,7 +88,25 @@ func ResultHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	user := parts[1]
 	problem := parts[2]
-	p := filepath.Join("data/user/", user, problem+".result")
+
+	// Resolve problem ID or Name to actual problem name for consistency
+	problemName := problem
+	db := sql_service.DB()
+	if db != nil {
+		// Try to find problem by ID
+		var prob sql_service.Problem
+		if err := db.First(&prob, problem).Error; err == nil {
+			// Found by ID, use the Name
+			problemName = prob.Name
+		} else {
+			// Try to find by Name
+			if err := db.Where("name = ?", problem).First(&prob).Error; err == nil {
+				problemName = prob.Name
+			}
+		}
+	}
+
+	p := filepath.Join("data/user/", user, problemName+".result")
 	data, err := os.ReadFile(p)
 	if err != nil {
 		http.Error(w, "no result", http.StatusNotFound)

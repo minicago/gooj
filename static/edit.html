@@ -3,33 +3,283 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>题面编辑</title>
-    <style>body{font-family:Arial;padding:20px;max-width:700px;margin:auto}label{display:block;margin-top:8px}</style>
+    <title>题面编辑 - Gooj</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <style>
+      .tabs {
+        display: flex;
+        margin-bottom: 20px;
+        border-bottom: 1px solid #ddd;
+      }
+      .tab {
+        padding: 10px 20px;
+        cursor: pointer;
+        border: 1px solid transparent;
+        border-bottom: none;
+        margin-right: 5px;
+        background: #f5f5f5;
+        border-radius: 5px 5px 0 0;
+      }
+      .tab.active {
+        background: white;
+        border-color: #ddd;
+        border-bottom-color: white;
+        font-weight: bold;
+      }
+      .tab-content {
+        display: none;
+      }
+      .tab-content.active {
+        display: block;
+      }
+      .file-upload {
+        border: 2px dashed #ccc;
+        padding: 20px;
+        text-align: center;
+        margin: 10px 0;
+        border-radius: 5px;
+      }
+      .file-upload:hover {
+        border-color: #007bff;
+      }
+      .preview-area {
+        margin-top: 20px;
+      }
+      .preview-area h3 {
+        margin-bottom: 10px;
+      }
+      #tuackPreview {
+        background: #f9f9f9;
+        padding: 15px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        max-height: 500px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        font-family: monospace;
+      }
+    </style>
   </head>
   <body>
-    <h1>题面编辑</h1>
-    <div>
-      <h2>修改题面</h2>
-      <label>题目ID <input id="problemID" /></label>
-      <label>新题面 <textarea id="newStatement"></textarea></label>
-      <button id="modifyBtn">修改</button>
+    <div class="manage-container">
+      <nav>
+        <a href="/problemlist">题目列表</a>
+        <a href="/">返回首页</a>
+      </nav>
+      <h1>题面编辑</h1>
+
+      <div class="card">
+        <div class="form-group">
+          <label>题目ID</label>
+          <input id="problemID" type="text" placeholder="请输入题目ID" />
+          <button id="loadBtn" class="info" style="margin-left: 10px">加载</button>
+        </div>
+
+        <div class="tabs">
+          <div class="tab active" data-tab="markdown">编辑 Markdown</div>
+          <div class="tab" data-tab="tuack">上传 Tuack</div>
+        </div>
+
+        <!-- Markdown Editor Tab -->
+        <div id="markdown-tab" class="tab-content active">
+          <form id="markdownForm">
+            <div class="form-group">
+              <label>题面内容 (Markdown)</label>
+              <textarea id="markdownEditor" class="code-editor" style="height: 400px" placeholder="请输入或加载题面内容..."></textarea>
+            </div>
+            <button type="submit" class="success" style="width: 100%">保存修改</button>
+          </form>
+        </div>
+
+        <!-- Tuack Upload Tab -->
+        <div id="tuack-tab" class="tab-content">
+          <div class="form-group">
+            <label>上传 Tuack 压缩包 (.zip)</label>
+            <div class="file-upload" id="dropZone">
+              <p>拖拽 zip 文件到此处，或点击选择文件</p>
+              <input type="file" id="tuackFile" accept=".zip" style="display: none" />
+              <p id="fileName" style="font-weight: bold; margin-top: 10px;"></p>
+            </div>
+            <p style="font-size: 0.9em; color: #666; margin-top: 10px;">
+              上传后将自动解压并更新题目文件（题面、测试数据等）
+            </p>
+          </div>
+          <div class="preview-area">
+            <h3>处理结果</h3>
+            <div id="tuackPreview"></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script>
-      async function postJSON(url, obj) {
-        const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(obj)});
-        if (!res.ok) throw new Error(await res.text());
-        return await res.json();
+      // State
+      let currentProblemID = '';
+      let tuackContent = '';
+
+      // URL parameter handling
+      function getURLParameter(name) {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get(name);
       }
 
-      document.getElementById('modifyBtn').addEventListener('click', async ()=>{
-        try{
-          const problemID=document.getElementById('problemID').value.trim();
-          const newStatement=document.getElementById('newStatement').value.trim();
-          if(!problemID||!newStatement) return alert('请输入所有字段');
-          await postJSON('/edit/modify',{problem_id:problemID,new_statement:newStatement});
+      // Tab switching
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+          tab.classList.add('active');
+          document.getElementById(tab.dataset.tab + '-tab').classList.add('active');
+        });
+      });
+
+      // Load problem data
+      async function loadProblemData(problemID) {
+        if (!problemID) return;
+        try {
+          const res = await fetch(`/api/problem/${encodeURIComponent(problemID)}`);
+          if (!res.ok) throw new Error('加载失败: ' + res.statusText);
+          const data = await res.json();
+          currentProblemID = problemID;
+          document.getElementById('problemID').value = problemID;
+          document.getElementById('markdownEditor').value = data.statement || '';
+          alert('题面加载成功');
+        } catch (e) {
+          alert('加载题面失败: ' + e.message);
+        }
+      }
+
+      // Markdown form submission
+      document.getElementById('markdownForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const problemID = document.getElementById('problemID').value.trim();
+        const statement = document.getElementById('markdownEditor').value;
+        if (!problemID || !statement) return alert('请输入题目ID并加载或输入题面内容');
+        try {
+          const res = await fetch('/edit/modify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ problem_id: problemID, new_statement: statement })
+          });
+          if (!res.ok) throw new Error(await res.text());
           alert('题面修改成功');
-        }catch(e){alert('修改失败: '+e.message)}
+        } catch (e) {
+          alert('修改失败: ' + e.message);
+        }
+      });
+
+      // Tuack file handling
+      const dropZone = document.getElementById('dropZone');
+      const fileInput = document.getElementById('tuackFile');
+      const fileNameDisplay = document.getElementById('fileName');
+      const preview = document.getElementById('tuackPreview');
+      const saveBtn = document.getElementById('saveTuackBtn');
+
+      dropZone.addEventListener('click', () => fileInput.click());
+
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = '#007bff';
+      });
+
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.style.borderColor = '#ccc';
+      });
+
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = '#ccc';
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+          handleFile(files[0]);
+        }
+      });
+
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+          handleFile(e.target.files[0]);
+        }
+      });
+
+      async function handleFile(file) {
+        fileNameDisplay.textContent = file.name;
+        preview.innerHTML = '<p>正在处理...</p>';
+
+        const problemID = document.getElementById('problemID').value.trim();
+        if (!problemID) {
+          alert('请先输入题目ID');
+          return;
+        }
+
+        // Create FormData to send file
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('problem_id', problemID);
+
+        try {
+          const res = await fetch('/api/import_tuack', {
+            method: 'POST',
+            body: formData
+          });
+
+          if (!res.ok) {
+            const errorText = await res.text();
+            throw new Error('导入失败: ' + errorText);
+          }
+
+          const data = await res.json();
+          preview.innerHTML = `<p style="color: green;">导入成功！</p>
+            <p>题目名称: ${data.name || ''}</p>
+            <p>题目标题: ${data.title || ''}</p>
+            <p>题面已更新，测试数据已导入</p>`;
+
+          // Reload problem data to show updated statement
+          await loadProblemData(problemID);
+        } catch (e) {
+          alert('处理 Tuack 文件失败: ' + e.message);
+          preview.innerHTML = `<p style="color: red;">处理失败: ${e.message}</p>`;
+        }
+      }
+
+      // Save tuack as statement
+      saveBtn.addEventListener('click', async () => {
+        const problemID = document.getElementById('problemID').value.trim();
+        const renderedStatement = preview.innerText;
+        if (!problemID || !renderedStatement) return alert('请先加载题目ID并上传Tuack文件');
+        try {
+          const res = await fetch('/edit/modify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ problem_id: problemID, new_statement: renderedStatement })
+          });
+          if (!res.ok) throw new Error(await res.text());
+          alert('题面保存成功');
+        } catch (e) {
+          alert('保存失败: ' + e.message);
+        }
+      });
+
+      // Load button
+      document.getElementById('loadBtn').addEventListener('click', () => {
+        const problemID = document.getElementById('problemID').value.trim();
+        if (problemID) {
+          loadProblemData(problemID);
+        } else {
+          alert('请输入题目ID');
+        }
+      });
+
+      // Auto-load from URL parameters on page load
+      window.addEventListener('DOMContentLoaded', () => {
+        const problemID = getURLParameter('problem') || getURLParameter('id');
+        const mode = getURLParameter('mode') || 'markdown';
+        if (problemID) {
+          document.getElementById('problemID').value = problemID;
+          loadProblemData(problemID);
+        }
+        if (mode === 'tuack') {
+          document.querySelector('[data-tab="tuack"]').click();
+        }
       });
     </script>
   </body>

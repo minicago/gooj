@@ -3,34 +3,39 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>题目列表</title>
-    <style>
-      body{font-family:Arial;padding:20px;max-width:900px;margin:auto}
-      table{width:100%;border-collapse:collapse}
-      th,td{padding:8px;border:1px solid #ddd}
-      .pager{margin-top:12px}
-    </style>
+    <title>题目列表 - Gooj</title>
+    <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
-    <h1>题目</h1>
-    <div>已登录: <span id="who"></span> <button id="logout">登出</button></div>
-    <div id="manageUsersOption" style="display:none;margin-bottom:12px">
-      <a href="/manage">管理用户</a>
-    </div>
-    <table>
-      <thead><tr><th>ID</th><th>名称</th><th>标题</th><th>操作</th></tr></thead>
-      <tbody id="tbody"></tbody>
-    </table>
-    <div class="pager">
-      <button id="prev">上一页</button>
-      <span id="pageInfo"></span>
-      <button id="next">下一页</button>
-    </div>
+    <div class="problem-list-container">
+      <h1>题目列表</h1>
+      <div class="user-info">
+        <div>已登录: <span id="who" style="font-weight: 600;"></span></div>
+        <button id="logout" class="danger small">登出</button>
+      </div>
+      <div id="manageUsersOption" style="display:none;margin-bottom:16px">
+        <a href="/manage" class="button primary">管理用户</a>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>名称</th><th>标题</th><th>通过人数</th><th>我的最高分</th><th>操作</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="pager">
+        <button id="prev" class="secondary">上一页</button>
+        <span id="pageInfo"></span>
+        <button id="next" class="secondary">下一页</button>
+      </div>
 
-    <h2>获取上次提交</h2>
-    <label>题目名 <input id="lastProblem" /></label>
-    <button id="getLast">获取上次提交和结果</button>
-    <pre id="lastResult"></pre>
+      <div class="card">
+        <h2>获取上次提交</h2>
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <label style="margin-bottom: 0;">题目名</label>
+          <input id="lastProblem" />
+          <button id="getLast">获取</button>
+        </div>
+        <div id="lastResult" class="result-preview" style="margin-top: 16px;"></div>
+      </div>
+    </div>
 
     <script>
       const per = 10
@@ -48,19 +53,56 @@
         const j = await res.json()
         const tbody = document.getElementById('tbody')
         tbody.innerHTML = ''
-        j.problems.forEach(p => {
+        
+        // Get current username
+        const username = localStorage.getItem('username')
+        
+        // Load problem stats in parallel
+        const problemPromises = j.problems.map(async p => {
+          let passedCount = 0
+          let userBestScore = 0
+          
+          try {
+            // Get problem stats
+            const statsRes = await fetch(`/api/problem_stats?problem=${encodeURIComponent(p.Name)}`)
+            if (statsRes.ok) {
+              const stats = await statsRes.json()
+              passedCount = stats.passed_count || 0
+              userBestScore = stats.user_best_score || 0
+            }
+          } catch (error) {
+            console.error(`Error loading stats for problem ${p.Name}:`, error)
+          }
+          
+          return {
+            ...p,
+            passedCount,
+            userBestScore
+          }
+        })
+        
+        const problemsWithStats = await Promise.all(problemPromises)
+        
+        problemsWithStats.forEach(p => {
           const tr = document.createElement('tr')
-          tr.innerHTML = `<td>${p.ID}</td><td>${p.Name}</td><td>${p.Title||''}</td><td><a href="/problem?problem=${encodeURIComponent(p.Name)}">查看题目</a></td>`
+          tr.innerHTML = `
+            <td>${p.ID}</td>
+            <td>${p.Name}</td>
+            <td>${p.Title||''}</td>
+            <td>${p.passedCount}</td>
+            <td>${p.userBestScore}</td>
+            <td><a href="/problem?id=${encodeURIComponent(p.Name)}">查看题目</a></td>
+          `
           tbody.appendChild(tr)
         })
+        
         const total = j.total
         const pages = Math.ceil(total / per)
         document.getElementById('pageInfo').textContent = `第 ${page} / ${pages} 页，总 ${total} 道题`
 
         // Check user permissions for managing users
-        const user = localStorage.getItem('username');
-        if (user) {
-          const permRes = await fetch('/api/user_permissions?username=' + encodeURIComponent(user) + "&permission=UserPermission");
+        if (username) {
+          const permRes = await fetch('/api/user_permissions?username=' + encodeURIComponent(username) + "&permission=UserPermission");
           if (permRes.ok) {
             const perms = await permRes.json();
             if (perms.permited) {

@@ -102,10 +102,16 @@ func ResetCreatedUserPassword(currentUsername, targetUsername, newPassword strin
 		return err
 	}
 
-	if !currentUser.Group.UserPermission || targetUser.CreatedBy != currentUser.Username && !currentUser.Group.GroupPermission {
-		return errors.New("permission denied")
+	// 检查目标用户所在组的创建者
+	var targetGroup Group
+	if err := db.Where("name = ?", targetUser.GroupName).First(&targetGroup).Error; err != nil {
+		return err
 	}
 
+	// 权限检查：当前用户是目标用户所在组的创建者，或者有 GroupPermission
+	if targetGroup.CreatedBy != currentUser.Username && !currentUser.Group.GroupPermission {
+		return errors.New("permission denied")
+	}
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return err
@@ -132,17 +138,24 @@ func DeleteCreatedUser(currentUsername, targetUsername string) error {
 		return err
 	}
 
-	if !currentUser.Group.UserPermission || targetUser.CreatedBy != currentUser.Username && !currentUser.Group.GroupPermission {
+	// 检查目标用户所在组的创建者
+	var targetGroup Group
+	if err := db.Where("name = ?", targetUser.GroupName).First(&targetGroup).Error; err != nil {
+		return err
+	}
+
+	// 权限检查：当前用户是目标用户所在组的创建者，或者有 GroupPermission
+	if targetGroup.CreatedBy != currentUser.Username && !currentUser.Group.GroupPermission {
 		return errors.New("permission denied")
 	}
 	return db.Delete(&targetUser).Error
 }
 
-func CreateSubmission(username, problem, code string) (Submission, error) {
+func CreateSubmission(username string, problemID uint, code string) (Submission, error) {
 	if db == nil {
 		return Submission{}, errors.New("db not initialized")
 	}
-	s := Submission{Username: username, Problem: problem, Code: code, Status: "queued"}
+	s := Submission{Username: username, ProblemID: problemID, Code: code, Status: "queued"}
 	if err := db.Create(&s).Error; err != nil {
 		return Submission{}, err
 	}
@@ -181,6 +194,28 @@ func UpdateSubmissionResult(subID uint, status string, results []TestResult) err
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&Submission{}).Where("id = ?", subID).Updates(map[string]interface{}{"status": status, "updated_at": time.Now()}).Error; err != nil {
+			return err
+		}
+		for i := range results {
+			results[i].SubmissionID = subID
+			if err := tx.Create(&results[i]).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func UpdateSubmissionResultWithScore(subID uint, status string, score int, results []TestResult) error {
+	if db == nil {
+		return errors.New("db not initialized")
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&Submission{}).Where("id = ?", subID).Updates(map[string]interface{}{
+			"status":     status,
+			"score":      score,
+			"updated_at": time.Now(),
+		}).Error; err != nil {
 			return err
 		}
 		for i := range results {
@@ -279,25 +314,25 @@ func EnsureSuperGroupAndRoot() error {
 		return errors.New("db not initialized")
 	}
 	// Ensure super user group exists
-
 	var superGroup Group
 	if err := db.Where(&Group{Name: "super"}).First(&superGroup).Error; err != nil {
-
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-
-			superGroup = Group{Name: "super", EditPermission: true, UserPermission: true, GroupPermission: true}
+			// Create super group with creator = "super"
+			superGroup = Group{Name: "super", EditPermission: true, UserPermission: true, GroupPermission: true, CreatedBy: "super"}
 			if err := db.Save(&superGroup).Error; err != nil {
 				return err
 			}
 		} else {
-
 			return err
 		}
-
 	} else {
+		// Ensure super group has correct permissions and creator
 		superGroup.EditPermission = true
 		superGroup.GroupPermission = true
 		superGroup.UserPermission = true
+		if superGroup.CreatedBy == "" {
+			superGroup.CreatedBy = "super"
+		}
 		if err := db.Save(&superGroup).Error; err != nil {
 			return err
 		}
@@ -314,28 +349,41 @@ func EnsureSuperGroupAndRoot() error {
 	if err := db.Where("username = ?", "root").First(&root).Error; err != nil {
 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			root = User{Username: "root", Password: string(hashedPassword), CreatedBy: "root", GroupName: "super"}
+			root = User{Username: "root", Password: string(hashedPassword), CreatedBy: "root", GroupName: "super", Approved: true}
 			if err := db.Create(&root).Error; err != nil {
+				return err
+			}
+			// Save root password to file only when creating new user
+			if err := os.WriteFile("data/rootpassword.txt", []byte(password), 0644); err != nil {
 				return err
 			}
 		} else {
 			return err
 		}
-	}
-
-	root.GroupName = "super"
-
-	// Update root password in case it already exists
-	root.Password = string(hashedPassword)
-
-	if err := db.Save(&root).Error; err != nil {
-		print(err.Error())
-		return err
-	}
-
-	// Save root password to file
-	if err := os.WriteFile("data/rootpassword.txt", []byte(password), 0644); err != nil {
-		return err
+	} else {
+		// Root user already exists, ensure it's approved and in super group
+		root.GroupName = "super"
+		root.Approved = true
+		// Only update password if it has changed (i.e., if stored hash is different)
+		// This prevents password from changing on every restart
+		if bcrypt.CompareHashAndPassword([]byte(root.Password), []byte(password)) != nil {
+			// Password doesn't match the generated one, so update it
+			root.Password = string(hashedPassword)
+			if err := db.Save(&root).Error; err != nil {
+				print(err.Error())
+				return err
+			}
+			// Save new password to file
+			if err := os.WriteFile("data/rootpassword.txt", []byte(password), 0644); err != nil {
+				return err
+			}
+		} else {
+			// Password is still valid, just ensure other fields are correct
+			if err := db.Save(&root).Error; err != nil {
+				print(err.Error())
+				return err
+			}
+		}
 	}
 
 	return nil

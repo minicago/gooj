@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>用户管理 - Gooj</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <nav>
+        <a href="/problemlist">题目列表</a>
+        <a href="/submit">提交页面</a>
+        <a href="/postboard">公告板</a>
+        <a href="/">返回首页</a>
+      </nav>
+      <h1>用户管理</h1>
+      
+      <div class="card">
+        <h2>待审核用户</h2>
+        <div id="pendingUsers">
+          <p>加载中...</p>
+        </div>
+      </div>
+      
+      <div class="card">
+        <h2>已审核用户</h2>
+        <div id="approvedUsers">
+          <p>加载中...</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      async function postJSON(url, obj) {
+        const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(obj)});
+        if (!res.ok) throw new Error(await res.text());
+        return await res.json();
+      }
+
+      // 获取待审核用户
+      async function getPendingUsers() {
+        try {
+          const res = await fetch('/api/pending_users');
+          if (!res.ok) throw new Error('获取待审核用户失败');
+          const data = await res.json();
+          return data.users || [];
+        } catch (e) {
+          console.error('获取待审核用户失败:', e);
+          return [];
+        }
+      }
+
+      // 获取已审核用户
+      async function getApprovedUsers() {
+        try {
+          const res = await fetch('/api/approved_users');
+          if (!res.ok) throw new Error('获取已审核用户失败');
+          const data = await res.json();
+          return data.users || [];
+        } catch (e) {
+          console.error('获取已审核用户失败:', e);
+          return [];
+        }
+      }
+
+      // 审核用户
+      async function approveUser(username) {
+        try {
+          await postJSON(`/api/approve/${username}`, {});
+          alert(`用户 ${username} 已通过审核`);
+          loadUsers();
+        } catch (e) {
+          alert('审核失败: ' + e.message);
+        }
+      }
+
+      // 拒绝用户
+      async function rejectUser(username) {
+        if (!confirm(`确定要拒绝用户 ${username} 的注册申请吗？`)) {
+          return;
+        }
+        try {
+          await postJSON(`/api/reject/${username}`, {});
+          alert(`用户 ${username} 已拒绝`);
+          loadUsers();
+        } catch (e) {
+          alert('拒绝失败: ' + e.message);
+        }
+      }
+
+      // 渲染用户列表
+      function renderUsers(users, containerId, showActions = true) {
+        const container = document.getElementById(containerId);
+        if (users.length === 0) {
+          container.innerHTML = '<p>暂无数据</p>';
+          return;
+        }
+
+        let html = '<table><thead><tr><th>用户名</th><th>组</th><th>创建人</th><th>申请时间</th>';
+        if (showActions) {
+          html += '<th>操作</th>';
+        }
+        html += '</tr></thead><tbody>';
+
+        users.forEach(user => {
+          const username = user.Username || user.username || '';
+          const groupName = user.GroupName || user.group_name || '';
+          const createdBy = user.CreatedBy || user.createdBy || '';
+          const createdAt = user.CreatedAt || user.created_at || '';
+          html += `<tr>
+            <td>${username}</td>
+            <td>${groupName}</td>
+            <td>${createdBy}</td>
+            <td>${new Date(createdAt).toLocaleString()}</td>`;
+          if (showActions) {
+            html += `<td>
+              <button onclick="approveUser('${username}')" class="button small success">通过</button>
+              <button onclick="rejectUser('${username}')" class="button small danger">拒绝</button>
+            </td>`;
+          }
+          html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+      }
+
+      // 加载用户数据
+      async function loadUsers() {
+        const pendingUsers = await getPendingUsers();
+        const approvedUsers = await getApprovedUsers();
+        
+        renderUsers(pendingUsers, 'pendingUsers');
+        renderUsers(approvedUsers, 'approvedUsers', false);
+      }
+
+      // 页面加载时获取数据
+      document.addEventListener('DOMContentLoaded', function() {
+        loadUsers();
+        
+        // 每30秒刷新一次
+        setInterval(loadUsers, 30000);
+      });
+    </script>
+  </body>
+</html>

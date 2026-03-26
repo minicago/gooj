@@ -34,3 +34,13 @@ data/*
 # .vscode/
 
 tmp/*
+
+sample
+
+gooj
+
+gooj_test
+
+gooj_server
+
+go.sum

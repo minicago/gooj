@@ -20,7 +20,7 @@ func listen(cmdChan chan string) {
 	handler := web.NewRouter()
 
 	srv := http.Server{
-		Addr:    ":80",
+		Addr:    ":8081",
 		Handler: handler,
 	}
 
@@ -29,7 +29,7 @@ func listen(cmdChan chan string) {
 			log.Fatalf("%v", err)
 		}
 	}()
-	fmt.Println("listening on :80")
+	fmt.Println("listening on :8081")
 
 	for {
 		cmdStr := <-cmdChan

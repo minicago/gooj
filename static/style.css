@@ -1,0 +1,791 @@
+/* Gooj 统一样式表 */
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    --primary-color: #667eea;
+    --primary-dark: #5568d3;
+    --secondary-color: #764ba2;
+    --success-color: #10b981;
+    --danger-color: #ef4444;
+    --warning-color: #f59e0b;
+    --text-primary: #1f2937;
+    --text-secondary: #6b7280;
+    --text-light: #9ca3af;
+    --bg-primary: #ffffff;
+    --bg-secondary: #f9fafb;
+    --bg-tertiary: #f3f4f6;
+    --border-color: #e5e7eb;
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0;
+}
+
+/* 导航栏 */
+nav {
+    background: white;
+    border-radius: var(--radius-lg);
+    padding: 16px 24px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow-md);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+nav a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    transition: all 0.2s;
+    font-weight: 500;
+}
+
+nav a:hover {
+    color: var(--primary-color);
+    background: var(--bg-tertiary);
+}
+
+/* 标题 */
+h1 {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 24px;
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+h2 {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 16px;
+    margin-top: 32px;
+}
+
+h2:first-child {
+    margin-top: 0;
+}
+
+h3 {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+}
+
+/* 卡片样式 */
+.card {
+    background: white;
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    box-shadow: var(--shadow-md);
+    margin-bottom: 20px;
+}
+
+.card-header {
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 16px;
+    margin-bottom: 16px;
+}
+
+/* 表单元素 */
+label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+    font-weight: 500;
+    font-size: 14px;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+select,
+textarea {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: 15px;
+    transition: all 0.2s;
+    background: var(--bg-secondary);
+    font-family: inherit;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus,
+input[type="number"]:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    background: white;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+textarea {
+    resize: vertical;
+    min-height: 120px;
+    line-height: 1.5;
+}
+
+textarea.code-editor {
+    font-family: 'Fira Code', 'Monaco', 'Consolas', 'Courier New', monospace;
+    font-size: 14px;
+    min-height: 320px;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border-color: #333;
+}
+
+textarea.code-editor:focus {
+    background: #1e1e1e;
+    border-color: var(--primary-color);
+}
+
+/* 按钮 */
+button {
+    padding: 12px 24px;
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--primary-color);
+    color: white;
+    box-shadow: var(--shadow-sm);
+}
+
+button:hover {
+    background: var(--primary-dark);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+button:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+button:disabled {
+    background: var(--text-light);
+    cursor: not-allowed;
+    transform: none;
+}
+
+button.secondary {
+    background: white;
+    color: var(--text-primary);
+    border: 2px solid var(--border-color);
+}
+
+button.secondary:hover {
+    background: var(--bg-secondary);
+    border-color: var(--text-light);
+}
+
+button.danger {
+    background: var(--danger-color);
+}
+
+button.danger:hover {
+    background: #dc2626;
+}
+
+button.success {
+    background: var(--success-color);
+}
+
+button.success:hover {
+    background: #059669;
+}
+
+button.small {
+    padding: 8px 16px;
+    font-size: 14px;
+}
+
+/* 表格 */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-md);
+}
+
+thead {
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+    color: white;
+}
+
+th,
+td {
+    padding: 14px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+th {
+    font-weight: 600;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+td {
+    color: var(--text-primary);
+}
+
+tbody tr:hover {
+    background: var(--bg-secondary);
+}
+
+tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* 链接 */
+a {
+    color: var(--primary-color);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+a:hover {
+    color: var(--primary-dark);
+    text-decoration: underline;
+}
+
+/* 代码块 */
+pre {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 16px;
+    border-radius: var(--radius-md);
+    overflow-x: auto;
+    font-family: 'Fira Code', 'Monaco', 'Consolas', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    box-shadow: var(--shadow-sm);
+}
+
+code {
+    background: var(--bg-tertiary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Fira Code', 'Monaco', 'Consolas', 'Courier New', monospace;
+    font-size: 13px;
+    color: var(--danger-color);
+}
+
+/* 留言板消息 */
+.message {
+    padding: 16px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    margin-bottom: 12px;
+    background: white;
+    transition: all 0.2s;
+}
+
+.message:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--primary-color);
+}
+
+/* 分页 */
+.pager {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    margin-top: 24px;
+    padding: 16px;
+}
+
+.pager button {
+    min-width: 100px;
+}
+
+.pager span {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+/* 操作按钮组 */
+.actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 24px;
+}
+
+/* 用户信息 */
+.user-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    background: white;
+    border-radius: var(--radius-md);
+    margin-bottom: 20px;
+    box-shadow: var(--shadow-sm);
+}
+
+/* 限制信息 */
+#limits {
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    padding: 12px 16px;
+    border-radius: var(--radius-md);
+    margin-bottom: 16px;
+    font-size: 14px;
+}
+
+/* 题面内容 */
+#statement {
+    border: 1px solid var(--border-color);
+    padding: 20px;
+    border-radius: var(--radius-md);
+    background: white;
+    line-height: 1.8;
+    box-shadow: var(--shadow-sm);
+}
+
+/* Markdown 渲染内容的样式 */
+#statement h1 {
+    font-size: 28px;
+    margin-top: 24px;
+    margin-bottom: 16px;
+    border-bottom: 2px solid var(--border-color);
+    padding-bottom: 8px;
+}
+
+#statement h2 {
+    font-size: 24px;
+    margin-top: 24px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 6px;
+}
+
+#statement h3 {
+    font-size: 20px;
+    margin-top: 20px;
+    margin-bottom: 12px;
+}
+
+#statement p {
+    margin-bottom: 16px;
+}
+
+#statement p:first-child {
+    margin-top: 0;
+}
+
+#statement p:last-child {
+    margin-bottom: 0;
+}
+
+#statement code {
+    background: var(--bg-tertiary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
+    font-size: 0.9em;
+    color: #e83e8c;
+}
+
+#statement pre {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 16px;
+    border-radius: var(--radius-md);
+    overflow-x: auto;
+    margin-bottom: 16px;
+}
+
+#statement pre code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+#statement ul, #statement ol {
+    margin-left: 24px;
+    margin-bottom: 16px;
+}
+
+#statement li {
+    margin-bottom: 8px;
+}
+
+#statement blockquote {
+    border-left: 4px solid var(--primary-color);
+    padding-left: 16px;
+    margin: 16px 0;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+#statement a {
+    color: var(--primary-color);
+    text-decoration: underline;
+}
+
+#statement a:hover {
+    color: var(--primary-dark);
+}
+
+/* Markdown 表格样式 */
+#statement table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    background: white;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+}
+
+#statement thead {
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+    color: white;
+}
+
+#statement th,
+#statement td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+#statement th {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+#statement tbody tr:last-child td {
+    border-bottom: none;
+}
+
+#statement tbody tr:hover {
+    background: var(--bg-secondary);
+}
+
+#statement tbody tr:nth-child(even) {
+    background: var(--bg-secondary);
+}
+
+#statement tbody tr:nth-child(even):hover {
+    background: var(--bg-tertiary);
+}
+
+/* 状态显示 */
+#status {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+/* 编辑选项 */
+#editOption {
+    margin-left: 12px;
+}
+
+/* 管理选项 */
+#manageUsersOption {
+    margin-bottom: 12px;
+}
+
+/* 表单组 */
+.form-group {
+    margin-bottom: 20px;
+}
+
+/* 复选框组 */
+.permissions {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+}
+
+.permissions label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    cursor: pointer;
+}
+
+.permissions input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--primary-color);
+}
+
+/* 结果区域 */
+#result {
+    min-height: 100px;
+}
+
+/* 加载中 */
+.loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    body {
+        padding: 12px;
+    }
+
+    h1 {
+        font-size: 24px;
+    }
+
+    h2 {
+        font-size: 20px;
+    }
+
+    nav {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    nav a {
+        text-align: center;
+    }
+
+    .actions {
+        flex-direction: column;
+    }
+
+    .actions button {
+        width: 100%;
+    }
+
+    table {
+        font-size: 14px;
+    }
+
+    th,
+    td {
+        padding: 10px 12px;
+    }
+}
+
+/* 特定页面样式 */
+/* 登录页面 */
+.login-container {
+    max-width: 500px;
+    margin: 40px auto;
+}
+
+/* 题目列表 */
+.problem-list-container {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+/* 提交页面 */
+.submit-container {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+/* 管理页面 */
+.manage-container {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+/* 留言板 */
+.postboard-container {
+    max-width: 700px;
+    margin: 0 auto;
+}
+
+/* 工具类 */
+.text-center {
+    text-align: center;
+}
+
+.text-muted {
+    color: var(--text-secondary);
+}
+
+.mt-4 {
+    margin-top: 16px;
+}
+
+.mb-4 {
+    margin-bottom: 16px;
+}
+
+/* 搜索框 */
+#lastProblem {
+    display: inline-block;
+    width: auto;
+    min-width: 200px;
+}
+
+/* 上传区域 */
+.upload-area {
+    border: 2px dashed var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 40px 20px;
+    text-align: center;
+    background: var(--bg-secondary);
+    cursor: pointer;
+    transition: all 0.3s;
+    position: relative;
+}
+
+.upload-area:hover {
+    border-color: var(--primary-color);
+    background: var(--bg-tertiary);
+}
+
+.upload-area.dragover {
+    border-color: var(--primary-color);
+    background: rgba(102, 126, 234, 0.1);
+}
+
+.upload-icon {
+    font-size: 48px;
+    color: var(--primary-color);
+    margin-bottom: 12px;
+}
+
+.upload-text {
+    color: var(--text-secondary);
+    font-size: 15px;
+}
+
+/* 输入文件上传 */
+input[type="file"] {
+    padding: 12px 16px;
+    cursor: pointer;
+}
+
+/* 删除按钮 */
+.delete-btn {
+    background: transparent;
+    color: var(--danger-color);
+    border: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    font-size: 18px;
+    line-height: 1;
+    border-radius: var(--radius-sm);
+    transition: all 0.2s;
+}
+
+.delete-btn:hover {
+    background: rgba(239, 68, 68, 0.1);
+    transform: none;
+}
+
+/* 行布局 */
+.row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.col {
+    flex: 1;
+    min-width: 200px;
+}
+
+/* 结果预览 */
+.result-preview {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 16px;
+    border-radius: var(--radius-md);
+    font-family: 'Fira Code', 'Monaco', 'Consolas', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* 标签 */
+.badge {
+    display: inline-block;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 9999px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.badge-success {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success-color);
+}
+
+.badge-danger {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger-color);
+}
+
+.badge-warning {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warning-color);
+}

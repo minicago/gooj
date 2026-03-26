@@ -41,6 +41,13 @@ func NewRouter() http.Handler {
 	r.HandleFunc("/manage", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "static/manage.html")
 	}).Methods("GET")
+	r.HandleFunc("/manage_users", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "static/manage_users.html")
+	}).Methods("GET")
+
+	r.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "static/register.html")
+	}).Methods("GET")
 
 	r.HandleFunc("/create_user", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "static/create_user.html")
@@ -48,6 +55,9 @@ func NewRouter() http.Handler {
 
 	r.HandleFunc("/create_group", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "static/create_group.html")
+	}).Methods("GET")
+	r.HandleFunc("/upload_problem", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "static/upload_problem.html")
 	}).Methods("GET")
 	r.HandleFunc("/edit", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "static/edit.html")
@@ -61,19 +71,40 @@ func NewRouter() http.Handler {
 	r.HandleFunc("/result/{user}/{problem}", ResultHandler).Methods("GET")
 	r.HandleFunc("/codefile/{user}/{problem}", CodeFileHandler).Methods("GET")
 	// Added `/api/users` endpoint to list all users
-	r.HandleFunc("/api/users", manage.ListUsersHandler).Methods("GET")
+	r.HandleFunc("/api/users", GetUsersHandler).Methods("GET")
+	r.HandleFunc("/api/allUsers", GetAllUsersHandler).Methods("GET")
 	r.HandleFunc("/api/groups", manage.ListGroupsHandler).Methods("GET")
 	r.HandleFunc("/api/user_permissions", manage.GetUserPermissionsHandler).Methods("GET")
+	// User management endpoints
+	r.HandleFunc("/api/pending_users", GetPendingUsersHandler).Methods("GET")
+	r.HandleFunc("/api/approved_users", GetApprovedUsersHandler).Methods("GET")
+	r.HandleFunc("/api/approve/{username}", ApproveUserHandler).Methods("POST")
+	r.HandleFunc("/api/reject/{username}", RejectUserHandler).Methods("POST")
 
 	// API to create a user (admin)
 	r.HandleFunc("/api/create_user", manage.CreateUserHandler).Methods("POST")
 	r.HandleFunc("/api/create_group", manage.CreateGroupHandler).Methods("POST")
+	r.HandleFunc("/api/update_group_creator", manage.UpdateGroupCreatorHandler).Methods("POST")
+	r.HandleFunc("/api/delete_group", manage.DeleteGroupHandler).Methods("POST")
 	r.HandleFunc("/api/reset_password", manage.ResetPasswordHandler).Methods("POST")
 	r.HandleFunc("/api/delete_user", manage.DeleteUserHandler).Methods("POST")
+	r.HandleFunc("/api/delete_problem", manage.DeleteProblemHandler).Methods("POST")
 
 	// Edit endpoints for modifying statements and adding test data
 	r.HandleFunc("/edit/modify", edit.ModifyProblemStatementHandler).Methods("POST")
 	r.HandleFunc("/edit/add_test", edit.AddTestDataHandler).Methods("POST")
+	// Import tuack package from zip file
+	r.HandleFunc("/api/import_tuack", edit.ImportTuackHandler).Methods("POST")
+
+	// Upload problem endpoint
+	r.HandleFunc("/api/upload_problem", UploadProblemHandler).Methods("POST")
+
+	// Submission endpoints
+	r.HandleFunc("/submissions", SubmissionsHandler).Methods("GET")
+	r.HandleFunc("/submission/{id}", SubmissionDetailHandler).Methods("GET")
+	r.HandleFunc("/api/submissions", GetSubmissionsHandler).Methods("GET")
+	r.HandleFunc("/api/submission/{id}", GetSubmissionHandler).Methods("GET")
+	r.HandleFunc("/api/problem_stats", GetProblemStatsHandler).Methods("GET")
 
 	// static files under /static/
 	fs := http.FileServer(http.Dir("static/"))

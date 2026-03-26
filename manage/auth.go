@@ -25,7 +25,21 @@ func CheckUserPermission(username string, permission string) bool {
 		return false
 	}
 
-	return reflect.ValueOf(user.Group).FieldByName(permission).Bool()
+	// Check if Group is loaded
+	if user.Group.Name == "" {
+		return false
+	}
+
+	// Use reflection to get the permission field
+	groupValue := reflect.ValueOf(user.Group)
+	field := groupValue.FieldByName(permission)
+
+	// Check if field exists and is a bool
+	if !field.IsValid() || field.Kind() != reflect.Bool {
+		return false
+	}
+
+	return field.Bool()
 
 }
 
@@ -80,7 +94,7 @@ func AuthMiddleWare(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		// public paths
-		if strings.HasPrefix(path, "/static/") || path == "/" || path == "/login" || path == "/register" {
+		if strings.HasPrefix(path, "/static/") || path == "/" || path == "/login" || path == "/register" || path == "/api/allUsers" || path == "/api/groups" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -109,8 +123,23 @@ func AuthMiddleWare(next http.Handler) http.Handler {
 
 			return
 		} else {
-			// attach username to request context
+			// attach username to request context and check if user is approved
 			if username, ok := GetUsernameFromToken(token); ok {
+				// Check if user is approved
+				var user sql_service.User
+				if err := db.Where("username = ? AND approved = ?", username, true).First(&user).Error; err != nil {
+					http.SetCookie(w, &http.Cookie{
+						Name:   "auth_token",
+						Value:  "",
+						MaxAge: -1,
+					})
+					if r.Method == "GET" {
+						http.Redirect(w, r, "/", http.StatusFound)
+						return
+					}
+					http.Error(w, "account not approved", http.StatusForbidden)
+					return
+				}
 				ctx := context.WithValue(r.Context(), usernameContextKey, username)
 				r = r.WithContext(ctx)
 			}

@@ -3,26 +3,28 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>提交代码</title>
-    <style>
-      body { font-family: Arial, sans-serif; padding: 20px; }
-      .container { max-width: 900px; margin: 0 auto; }
-      textarea { width:100%; box-sizing: border-box; height:320px; font-family: monospace; padding:8px }
-      button { padding: 8px 12px; margin-top: 8px; }
-    </style>
+    <title>提交代码 - Gooj</title>
+    <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
-    <div class="container">
+    <div class="submit-container">
+      <nav>
+        <a href="/problemlist">题目列表</a>
+        <a href="/postboard">公告板</a>
+        <a href="/">返回首页</a>
+      </nav>
       <h1>提交代码</h1>
-      <div>
-        <div>当前用户：<span id="username"></span></div>
-        <div>题目：<span id="problemId"></span></div>
-        <div id="limits" style="margin-top:8px;color:#555"></div>
+      <div class="card">
+        <div class="user-info">
+          <div>当前用户：<strong id="username"></strong></div>
+          <div>题目：<strong id="problemId"></strong></div>
+        </div>
+        <div id="limits"></div>
       </div>
 
-      <div style="margin-top:12px">
-        <label>C++ 代码</label>
-        <textarea id="code">#include <bits/stdc++.h>
+      <div class="card">
+        <h2>C++ 代码</h2>
+        <textarea id="code" class="code-editor">#include <bits/stdc++.h>
 using namespace std;
 int main(){
     cout<<"hello"<<endl;
@@ -30,14 +32,17 @@ int main(){
 }
 </textarea>
       </div>
-      <div>
-        <button id="submitBtn">提交并运行</button>
-        <button id="loadLastBtn" style="margin-left:8px">获取上次提交</button>
-        <span id="status" style="margin-left:12px"></span>
+      <div class="actions">
+        <button id="submitBtn" class="success">提交并运行</button>
+        <button id="loadLastBtn" class="secondary">获取上次提交</button>
+        <a href="/submissions" class="button secondary">查看所有提交</a>
+        <span id="status"></span>
       </div>
 
-      <h2>运行结果</h2>
-      <pre id="result"></pre>
+      <div class="card">
+        <h2>运行结果</h2>
+        <div id="result" class="result-preview"></div>
+      </div>
     </div>
 
     <script>
@@ -46,14 +51,14 @@ int main(){
         return u.searchParams.get(name);
       }
       const username = localStorage.getItem('username') || '';
-      const problem = qsGet('problem') || '';
+      const problemId = qsGet('id') || '';
       document.getElementById('username').textContent = username;
-      document.getElementById('problemId').textContent = problem;
+      document.getElementById('problemId').textContent = problemId;
 
       async function loadProblem() {
-        if (!problem) return;
+        if (!problemId) return;
         try {
-          const r = await fetch('/api/problem/' + encodeURIComponent(problem));
+          const r = await fetch('/api/problem/' + encodeURIComponent(problemId));
           if (!r.ok) return;
           const j = await r.json();
           if (j.config) {
@@ -68,14 +73,14 @@ int main(){
 
       document.getElementById('submitBtn').addEventListener('click', async () => {
         if (!username) return alert('未登录，请先登录');
-        if (!problem) return alert('缺少题目编号');
+        if (!problemId) return alert('缺少题目编号');
         const code = document.getElementById('code').value;
         const submitBtn = document.getElementById('submitBtn');
         submitBtn.disabled = true;
         document.getElementById('status').textContent = '提交中...';
         const res = await fetch('/submit', {
           method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ username, problem, code })
+          body: JSON.stringify({ username, problem: problemId, code })
         });
         if (!res.ok) { submitBtn.disabled = false; return alert('提交失败'); }
         const j = await res.json();
@@ -89,7 +94,7 @@ int main(){
         let attempts = 0;
         const maxDelay = 3000;
         const pollOnce = async () => {
-          const r = await fetch(`/last_submission?username=${userEnc}&problem=${encodeURIComponent(problem)}`);
+          const r = await fetch(`/last_submission?username=${userEnc}&problem=${encodeURIComponent(problemId)}`);
           if (!r.ok) return false;
           const data = await r.json();
           if (!data || !data.submission) return false;

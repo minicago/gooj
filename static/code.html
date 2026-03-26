@@ -3,34 +3,33 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>在线评测</title>
-    <style>
-      body { font-family: Arial, sans-serif; padding: 20px; }
-      .container { max-width: 900px; margin: 0 auto; }
-      select, input[type="text"], textarea { width: 100%; box-sizing: border-box; padding: 8px; }
-      textarea { height: 320px; font-family: monospace; }
-      button { padding: 8px 12px; margin-top: 8px; }
-      .row { display: flex; gap: 12px; }
-      .col { flex: 1; }
-    </style>
+    <title>在线评测 - Gooj</title>
+    <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
-    <div class="container">
+    <div class="submit-container">
+      <nav>
+        <a href="/problemlist">题目列表</a>
+        <a href="/postboard">公告板</a>
+        <a href="/">返回首页</a>
+      </nav>
       <h1>提交代码</h1>
-      <div class="row">
-        <div class="col">
-          <label>题目</label>
-          <select id="problemSelect"></select>
-        </div>
-        <div class="col">
-          <label>用户名</label>
-          <input id="username" type="text" placeholder="输入用户名" />
+      <div class="card">
+        <div class="row">
+          <div class="col">
+            <label>题目</label>
+            <select id="problemSelect"></select>
+          </div>
+          <div class="col">
+            <label>用户名</label>
+            <input id="username" type="text" placeholder="输入用户名" />
+          </div>
         </div>
       </div>
 
-      <div style="margin-top:12px">
-        <label>C++ 代码</label>
-        <textarea id="code">#include <bits/stdc++.h>
+      <div class="card">
+        <h2>C++ 代码</h2>
+        <textarea id="code" class="code-editor">#include <bits/stdc++.h>
 using namespace std;
 int main(){
     cout<<"hello"<<endl;
@@ -38,14 +37,16 @@ int main(){
 }
 </textarea>
       </div>
-      <div>
-        <button id="submitBtn">提交并运行</button>
-        <button id="loadLastBtn" style="margin-left:8px">获取上次提交</button>
-        <span id="status" style="margin-left:12px"></span>
+      <div class="actions">
+        <button id="submitBtn" class="success">提交并运行</button>
+        <button id="loadLastBtn" class="secondary">获取上次提交</button>
+        <span id="status"></span>
       </div>
 
-      <h2>运行结果</h2>
-      <pre id="result"></pre>
+      <div class="card">
+        <h2>运行结果</h2>
+        <div id="result" class="result-preview"></div>
+      </div>
     </div>
 
     <script>

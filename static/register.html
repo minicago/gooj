@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>注册 - Gooj</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="login-container">
+      <h1>欢迎注册</h1>
+      <nav>
+        <a href="/problemlist">题目列表</a>
+        <a href="/submit">提交页面</a>
+        <a href="/postboard">公告板</a>
+        <a href="/">返回首页</a>
+      </nav>
+      <div class="card">
+        <h2>用户注册</h2>
+        <form id="registerForm" class="form-group">
+          <label>用户名</label>
+          <input id="registerUser" type="text" placeholder="请输入用户名" />
+          
+          <label style="margin-top: 16px">密码</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input id="registerPass" type="text" placeholder="点击生成密码按钮生成" readonly />
+            <button type="button" id="generatePassBtn" class="button small secondary">生成密码</button>
+          </div>
+          <small style="color: var(--warning-color); display: block; margin-top: 8px;">
+            ⚠️ 请务必保存好生成的密码，注册后无法再次查看
+          </small>
+          
+          <label style="margin-top: 16px">用户组</label>
+          <select id="userGroup">
+            <option value="">请选择用户组</option>
+          </select>
+          
+          <button id="registerBtn" style="margin-top: 24px; width: 100%">提交注册申请</button>
+        </form>
+      </div>
+      
+      <div id="statusMessage" class="status-message" style="display: none; margin-top: 16px;"></div>
+    </div>
+
+    <script>
+      async function postJSON(url, obj) {
+        const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(obj)});
+        if (!res.ok) throw new Error(await res.text());
+        return await res.json();
+      }
+
+      // 获取所有用户列表（用于创建人选择）
+      async function getUserList() {
+        try {
+          const res = await fetch('/api/allUsers');
+          if (!res.ok) throw new Error('获取用户列表失败');
+          const data = await res.json();
+          return data.users || [];
+        } catch (e) {
+          console.error('获取用户列表失败:', e);
+          return [];
+        }
+      }
+
+      // 加载用户组列表
+      async function loadGroups() {
+        try {
+          const res = await fetch('/api/groups');
+          if (!res.ok) throw new Error('获取用户组列表失败');
+          const data = await res.json();
+          const groupSelect = document.getElementById('userGroup');
+          groupSelect.innerHTML = '<option value="">请选择用户组</option>';
+          
+          const groups = data.groups || [];
+          groups.forEach(group => {
+            const option = document.createElement('option');
+            option.value = group.Name || group.name;
+            option.textContent = `${group.Name || group.name}`;
+            groupSelect.appendChild(option);
+          });
+          
+          if (groups.length === 0) {
+            groupSelect.innerHTML = '<option value="">暂无可用用户组</option>';
+          }
+        } catch (e) {
+          console.error('加载用户组列表失败:', e);
+          document.getElementById('userGroup').innerHTML = '<option value="">加载失败</option>';
+        }
+      }
+
+      // 生成随机密码（与后端 generateStrongPassword 保持一致）
+      function generatePassword() {
+        const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        const length = 8;
+        let password = '';
+        for (let i = 0; i < length; i++) {
+          password += charset.charAt(Math.floor(Math.random() * charset.length));
+        }
+        return password;
+      }
+
+      // 显示状态消息
+      function showMessage(message, isError = false) {
+        const messageDiv = document.getElementById('statusMessage');
+        messageDiv.textContent = message;
+        messageDiv.style.display = 'block';
+        messageDiv.className = isError ? 'status-message error' : 'status-message success';
+      }
+
+      // 初始化
+      document.addEventListener('DOMContentLoaded', function() {
+        loadGroups();
+        
+        // 页面加载时自动生成密码
+        const initialPassword = generatePassword();
+        document.getElementById('registerPass').value = initialPassword;
+        
+        // 生成密码按钮
+        document.getElementById('generatePassBtn').addEventListener('click', function() {
+          const password = generatePassword();
+          document.getElementById('registerPass').value = password;
+        });
+        
+        // 注册按钮
+        document.getElementById('registerBtn').addEventListener('click', async function() {
+          const btn = this;
+          btn.disabled = true;
+          btn.textContent = '提交中...';
+          
+          try {
+            const username = document.getElementById('registerUser').value.trim();
+            const password = document.getElementById('registerPass').value;
+            const group = document.getElementById('userGroup').value;
+            
+            // 验证输入
+            if (!username) {
+              showMessage('请输入用户名', true);
+              btn.disabled = false;
+              btn.textContent = '提交注册申请';
+              return;
+            }
+            
+            if (!password) {
+              showMessage('密码未生成', true);
+              btn.disabled = false;
+              btn.textContent = '提交注册申请';
+              return;
+            }
+            
+            if (!group) {
+              showMessage('请选择用户组', true);
+              btn.disabled = false;
+              btn.textContent = '提交注册申请';
+              return;
+            }
+            
+            // 提交注册申请
+            const res = await postJSON('/register', {
+              username: username,
+              password: password,
+              group: group
+            });
+            
+            showMessage(`注册申请已提交！请等待用户组创建者审核。<br><strong>用户名：${username}</strong><br><strong>密码：${password}</strong><br>请务必保存好密码！`, false);
+            
+            // 3秒后跳转到登录页面
+            setTimeout(() => {
+              location.href = '/';
+            }, 3000);
+            
+          } catch (e) {
+            let errorMsg = '注册失败';
+            if (e.message.includes('already exists')) {
+              errorMsg = '用户名已存在，请选择其他用户名';
+            } else if (e.message.includes('group not found')) {
+              errorMsg = '用户组不存在，请重新选择';
+            } else {
+              errorMsg = '注册失败: ' + e.message;
+            }
+            showMessage(errorMsg, true);
+            btn.disabled = false;
+            btn.textContent = '提交注册申请';
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

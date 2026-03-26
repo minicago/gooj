@@ -3,29 +3,114 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>创建用户组</title>
-    <style>
-      body { font-family: Arial; padding: 20px; max-width: 700px; margin: auto; }
-      label { display: block; margin-top: 8px; }
-      .permissions { margin-top: 12px; }
-    </style>
+    <title>创建用户组 - Gooj</title>
+    <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
-    <h1>创建用户组</h1>
-    <label>用户组名称 <input id="groupName" /></label>
-    <div class="permissions">
-      <h2>选择权限</h2>
-      <label><input type="checkbox" value="EditPermission" /> 管理题目</label>
-      <label><input type="checkbox" value="UserPermission" /> 管理用户</label>
-      <label><input type="checkbox" value="GroupPermission" /> 管理用户组</label>
+    <div class="manage-container">
+      <nav>
+        <a href="/manage">返回管理</a>
+      </nav>
+      <h1>创建用户组</h1>
+      <div class="card">
+        <form id="createGroupForm">
+          <div class="form-group">
+            <label>用户组名称</label>
+            <input id="groupName" type="text" placeholder="请输入用户组名称" />
+          </div>
+          <div class="permissions">
+            <h3>选择权限</h3>
+            <label><input type="checkbox" value="EditPermission" /> 管理题目</label>
+            <label><input type="checkbox" value="UserPermission" /> 管理用户</label>
+            <label><input type="checkbox" value="GroupPermission" /> 管理用户组</label>
+          </div>
+          <button id="createGroupBtn" class="success" style="width: 100%">创建用户组</button>
+        </form>
+      </div>
+      
+      <div class="card">
+        <h2>修改用户组创建者</h2>
+        <form id="updateGroupCreatorForm">
+          <div class="form-group">
+            <label>选择用户组</label>
+            <select id="groupSelect"></select>
+          </div>
+          <div class="form-group">
+            <label>新的创建者</label>
+            <select id="newCreatorSelect">
+              <option value="">请选择用户</option>
+            </select>
+          </div>
+          <button id="updateCreatorBtn" class="primary" style="width: 100%">修改创建者</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>删除用户组</h2>
+        <form id="deleteGroupForm">
+          <div class="form-group">
+            <label>选择要删除的用户组</label>
+            <select id="deleteGroupSelect"></select>
+          </div>
+          <div class="form-group">
+            <label>确认删除</label>
+            <input type="checkbox" id="confirmDelete" />
+            <label for="confirmDelete" style="display: inline; margin-left: 8px;">我确认要删除此用户组</label>
+          </div>
+          <button id="deleteGroupBtn" class="danger" style="width: 100%" disabled>删除用户组</button>
+        </form>
+      </div>
     </div>
-    <button id="createGroupBtn">创建用户组</button>
 
     <script>
       async function postJSON(url, obj) {
         const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
         if (!res.ok) throw new Error(await res.text());
         return await res.json();
+      }
+
+      async function getJSON(url) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(await res.text());
+        return await res.json();
+      }
+
+      // 加载用户组列表
+      async function loadGroups() {
+        try {
+          const data = await getJSON('/api/groups');
+          const groups = data.groups || [];
+          const groupSelect = document.getElementById('groupSelect');
+          groupSelect.innerHTML = '<option value="">请选择用户组</option>';
+          
+          groups.forEach(group => {
+            const option = document.createElement('option');
+            option.value = group.Name || group.name;
+            option.textContent = `${group.Name || group.name} (创建者: ${group.CreatedBy || '未知'})`;
+            groupSelect.appendChild(option);
+          });
+        } catch (e) {
+          console.error('加载用户组列表失败:', e);
+        }
+      }
+
+      // 加载用户列表（用于选择新创建者）
+      async function loadUsers() {
+        try {
+          const data = await getJSON('/api/allUsers');
+          const users = data.users || [];
+          const creatorSelect = document.getElementById('newCreatorSelect');
+          creatorSelect.innerHTML = '<option value="">请选择用户</option>';
+          
+          users.forEach(user => {
+            const option = document.createElement('option');
+            option.value = user.Username || user.username;
+            option.textContent = `${user.Username || user.username} (${user.Role || user.role || 'user'})`;
+            creatorSelect.appendChild(option);
+          });
+        } catch (e) {
+          console.error('加载用户列表失败:', e);
+        }
       }
 
       document.getElementById('createGroupBtn').addEventListener('click', async () => {
@@ -42,6 +127,84 @@
         } catch (e) {
           alert('创建失败: ' + e.message);
         }
+      });
+
+      document.getElementById('updateCreatorBtn').addEventListener('click', async () => {
+        const groupName = document.getElementById('groupSelect').value;
+        const newCreator = document.getElementById('newCreatorSelect').value;
+        
+        if (!groupName) return alert('请选择用户组');
+        if (!newCreator) return alert('请选择新的创建者');
+        
+        if (!confirm(`确定要将用户组 "${groupName}" 的创建者改为 "${newCreator}" 吗？`)) {
+          return;
+        }
+        
+        try {
+          await postJSON('/api/update_group_creator', {
+            groupName: groupName,
+            newCreator: newCreator
+          });
+          alert('修改成功');
+          loadGroups(); // 刷新列表
+        } catch (e) {
+          alert('修改失败: ' + e.message);
+        }
+      });
+
+      // 加载用户组列表到删除选择器
+      async function loadGroupsForDelete() {
+        try {
+          const data = await getJSON('/api/groups');
+          const groups = data.groups || [];
+          const deleteGroupSelect = document.getElementById('deleteGroupSelect');
+          deleteGroupSelect.innerHTML = '<option value="">请选择用户组</option>';
+          
+          groups.forEach(group => {
+            const option = document.createElement('option');
+            option.value = group.Name || group.name;
+            option.textContent = `${group.Name || group.name} (创建者: ${group.CreatedBy || '未知'})`;
+            deleteGroupSelect.appendChild(option);
+          });
+        } catch (e) {
+          console.error('加载用户组列表失败:', e);
+        }
+      }
+
+      // 确认删除复选框事件
+      document.getElementById('confirmDelete').addEventListener('change', function() {
+        document.getElementById('deleteGroupBtn').disabled = !this.checked;
+      });
+
+      // 删除用户组按钮事件
+      document.getElementById('deleteGroupBtn').addEventListener('click', async () => {
+        const groupName = document.getElementById('deleteGroupSelect').value;
+        
+        if (!groupName) return alert('请选择要删除的用户组');
+        
+        if (!confirm(`确定要删除用户组 "${groupName}" 吗？此操作不可恢复！`)) {
+          return;
+        }
+        
+        try {
+          await postJSON('/api/delete_group', { groupName });
+          alert('用户组删除成功');
+          // 刷新所有列表
+          loadGroups();
+          loadGroupsForDelete();
+          // 重置表单
+          document.getElementById('confirmDelete').checked = false;
+          document.getElementById('deleteGroupBtn').disabled = true;
+        } catch (e) {
+          alert('删除失败: ' + e.message);
+        }
+      });
+
+      // 页面加载时获取数据
+      document.addEventListener('DOMContentLoaded', function() {
+        loadGroups();
+        loadUsers();
+        loadGroupsForDelete();
       });
     </script>
   </body>

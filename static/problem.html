@@ -3,24 +3,40 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>题目</title>
-    <style>body{font-family:Arial;padding:20px;max-width:900px;margin:auto}pre{background:#f7f7f7;padding:12px}</style>
+    <title>题目 - Gooj</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <!-- KaTeX CSS for LaTeX rendering -->
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/katex.min.css" crossorigin="anonymous">
   </head>
   <body>
-    <h1 id="title">题目</h1>
-    <div id="limits" style="color:#444;margin-bottom:12px"></div>
-    <h2>题面</h2>
-    <div id="statement" style="white-space:pre-wrap;border:1px solid #eee;padding:12px;background:#fff"></div>
-    <div style="margin-top:16px">
-      <a id="toSubmit" href="#">去提交此题</a>
-      <span id="editOption" style="display:none;margin-left:12px">
-        <a href="#" id="editProblem">编辑题目</a>
-      </span>
+    <div class="container">
+      <nav>
+        <a href="/problemlist">题目列表</a>
+        <a href="/submit">提交页面</a>
+        <a href="/postboard">公告板</a>
+        <a href="/">返回首页</a>
+      </nav>
+      <h1 id="title">题目</h1>
+      <div id="limits"></div>
+      <div class="card">
+        <h2>题面</h2>
+        <div id="statement"></div>
+      </div>
+      <div class="actions">
+        <a id="toSubmit" href="#" class="button primary">去提交此题</a>
+        <span id="editOption" style="display:none">
+          <a href="#" id="editProblem" class="button secondary">编辑题目</a>
+        </span>
+      </div>
     </div>
+
+    <!-- KaTeX JS for LaTeX rendering - load before custom script -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/katex.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js" crossorigin="anonymous"></script>
 
     <script>
       function qsGet(name) { const u=new URL(location.href); return u.searchParams.get(name); }
-      const id = qsGet('problem') || '1';
+      const id = qsGet('id') || '1';
       document.getElementById('title').textContent = '题目 ' + id;
       async function load(){
         const r = await fetch('/api/problem/' + encodeURIComponent(id));
@@ -39,7 +55,22 @@
           if (cfg.memory_mb) txt += '内存限制: ' + cfg.memory_mb + ' MB; ';
           document.getElementById('limits').textContent = txt;
         }
-        document.getElementById('toSubmit').href = '/submit?problem=' + encodeURIComponent(id);
+        document.getElementById('toSubmit').href = '/submit?id=' + encodeURIComponent(id);
+
+        // Render LaTeX using KaTeX
+        if (typeof renderMathInElement !== 'undefined') {
+          renderMathInElement(document.getElementById('statement'), {
+            delimiters: [
+              {left: '$$', right: '$$', display: true},
+              {left: '$', right: '$', display: false},
+              {left: '\\(', right: '\\)', display: false},
+              {left: '\\[', right: '\\]', display: true}
+            ],
+            throwOnError: false
+          });
+        } else {
+          console.error('KaTeX auto-render not loaded');
+        }
 
         // Check user permissions for editing
         const user = localStorage.getItem('username');

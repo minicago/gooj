@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>提交详情 - Gooj</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .detail-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .back-btn {
+            padding: 8px 16px;
+            background-color: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .back-btn:hover {
+            background-color: #545b62;
+        }
+        
+        .submission-info {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        
+        .info-item {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .info-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+        
+        .info-value {
+            font-size: 16px;
+            font-weight: bold;
+        }
+        
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            display: inline-block;
+        }
+        
+        .status-ok {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .status-wa {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status-tle {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        
+        .status-mle {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .status-compile_error,
+        .status-runtime_error {
+            background-color: #f5c6cb;
+            color: #721c24;
+        }
+        
+        .status-queued,
+        .status-running {
+            background-color: #cce5ff;
+            color: #004085;
+        }
+        
+        .code-section {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .code-content {
+            background-color: #2d2d2d;
+            color: #f8f8f2;
+            border-radius: 4px;
+            padding: 15px;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .tests-section {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .tests-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .toggle-btn {
+            padding: 6px 12px;
+            background-color: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .toggle-btn:hover {
+            background-color: #545b62;
+        }
+        
+        .tests-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .tests-table th,
+        .tests-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .tests-table th {
+            background-color: #e9ecef;
+            font-weight: bold;
+        }
+        
+        .test-row {
+            cursor: pointer;
+        }
+        
+        .test-row:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .test-detail {
+            display: none;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-top: 1px solid #ddd;
+        }
+        
+        .test-detail.active {
+            display: table-row;
+        }
+        
+        .test-detail-content {
+            padding: 15px;
+            background-color: white;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .io-section {
+            margin-top: 15px;
+        }
+        
+        .io-header {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #495057;
+        }
+        
+        .io-content {
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .error {
+            text-align: center;
+            padding: 40px;
+            color: #dc3545;
+        }
+        
+        .copy-btn {
+            padding: 6px 12px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .copy-btn:hover {
+            background-color: #218838;
+        }
+        
+        .test-passed {
+            color: #28a745;
+            font-weight: bold;
+        }
+        
+        .test-failed {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        
+        .test-skipped {
+            color: #6c757d;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="detail-container">
+        <div class="header">
+            <h1>提交详情</h1>
+            <a href="/submissions" class="back-btn">返回列表</a>
+        </div>
+        
+        <div id="loading" class="loading">加载中...</div>
+        <div id="error" class="error" style="display: none;"></div>
+        
+        <div id="content" style="display: none;">
+            <div class="submission-info">
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">提交ID</span>
+                        <span class="info-value" id="submissionId">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">用户名</span>
+                        <span class="info-value" id="username">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">题目</span>
+                        <span class="info-value" id="problem">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">状态</span>
+                        <span class="info-value">
+                            <span id="statusBadge" class="status-badge">-</span>
+                        </span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">提交时间</span>
+                        <span class="info-value" id="createdAt">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">更新时间</span>
+                        <span class="info-value" id="updatedAt">-</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="code-section" id="codeSection" style="display: none;">
+                <div class="code-header">
+                    <h3>源代码</h3>
+                    <button class="copy-btn" onclick="copyCode()">复制代码</button>
+                </div>
+                <pre class="code-content" id="codeContent"></pre>
+            </div>
+            
+            <div class="tests-section">
+                <div class="tests-header">
+                    <h3>测试点详情</h3>
+                    <button class="toggle-btn" onclick="toggleAllTests()">展开/收起所有</button>
+                </div>
+                
+                <table class="tests-table" id="testsTable">
+                    <thead>
+                        <tr>
+                            <th>测试点</th>
+                            <th>状态</th>
+                            <th>时间</th>
+                            <th>内存</th>
+                            <th>得分</th>
+                        </tr>
+                    </thead>
+                    <tbody id="testsBody">
+                        <!-- 测试点数据将通过JavaScript填充 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let submissionId = window.location.pathname.split('/').pop();
+        let allTestsExpanded = false;
+
+        function formatStatus(status) {
+            const statusMap = {
+                'ok': '通过',
+                'wrong answer': '答案错误',
+                'Accepted': '通过',
+                'Not Accepted': '未通过',
+                'tle': '时间超限',
+                'mle': '内存超限',
+                'compile_error': '编译错误',
+                'runtime_error': '运行时错误',
+                'queued': '等待评测',
+                'running': '评测中'
+            };
+            return statusMap[status] || status;
+        }
+
+        function formatStatusClass(status) {
+            return `status-${status}`;
+        }
+
+        function formatTime(ms) {
+            if (ms === 0) return '-';
+            return `${ms}ms`;
+        }
+
+        function formatMemory(kb) {
+            if (kb === 0) return '-';
+            if (kb < 1024) return `${kb}KB`;
+            return `${(kb / 1024).toFixed(2)}MB`;
+        }
+
+        function formatDateTime(dateStr) {
+            const date = new Date(dateStr);
+            return date.toLocaleString('zh-CN');
+        }
+
+        function toggleTestDetail(testIndex) {
+            const detailRow = document.getElementById(`testDetail${testIndex}`);
+            if (detailRow) {
+                detailRow.classList.toggle('active');
+            }
+        }
+
+        function toggleAllTests() {
+            allTestsExpanded = !allTestsExpanded;
+            const details = document.querySelectorAll('.test-detail');
+            details.forEach(detail => {
+                if (allTestsExpanded) {
+                    detail.classList.add('active');
+                } else {
+                    detail.classList.remove('active');
+                }
+            });
+        }
+
+        function copyCode() {
+            const codeContent = document.getElementById('codeContent');
+            const textArea = document.createElement('textarea');
+            textArea.value = codeContent.textContent;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            
+            const copyBtn = document.querySelector('.copy-btn');
+            const originalText = copyBtn.textContent;
+            copyBtn.textContent = '已复制';
+            copyBtn.style.backgroundColor = '#6c757d';
+            
+            setTimeout(() => {
+                copyBtn.textContent = originalText;
+                copyBtn.style.backgroundColor = '#28a745';
+            }, 2000);
+        }
+
+        async function loadSubmission() {
+            try {
+                const response = await fetch(`/api/submission/${submissionId}`, {
+                    credentials: 'include'
+                });
+
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        throw new Error('提交记录不存在');
+                    } else if (response.status === 403) {
+                        throw new Error('无权查看此提交记录');
+                    } else {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                }
+
+                const submission = await response.json();
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+                
+                // 填充基本信息
+                document.getElementById('submissionId').textContent = submission.ID;
+                document.getElementById('username').textContent = submission.Username;
+                document.getElementById('problem').textContent = submission.ProblemID;
+                document.getElementById('createdAt').textContent = formatDateTime(submission.CreatedAt);
+                document.getElementById('updatedAt').textContent = formatDateTime(submission.UpdatedAt);
+                
+                // 状态徽章
+                const statusBadge = document.getElementById('statusBadge');
+                statusBadge.textContent = formatStatus(submission.Status);
+                statusBadge.className = `status-badge ${formatStatusClass(submission.Status)}`;
+                
+                // 显示代码部分（仅限edit管理员和用户本人）
+                const codeSection = document.getElementById('codeSection');
+                codeSection.style.display = 'block';
+                document.getElementById('codeContent').textContent = submission.Code;
+                
+                // 填充测试点
+                const testsBody = document.getElementById('testsBody');
+                testsBody.innerHTML = '';
+                
+                if (submission.TestResults && submission.TestResults.length > 0) {
+                    submission.TestResults.forEach((test, index) => {
+                        const row = document.createElement('tr');
+                        row.className = 'test-row';
+                        row.onclick = () => toggleTestDetail(test.TestIndex);
+                        
+                        row.innerHTML = `
+                            <td>测试点 ${test.TestIndex}</td>
+                            <td>
+                                <span class="${test.Passed ? 'test-passed' : 'test-failed'}">
+                                    ${test.Passed ? '通过' : '失败'}
+                                </span>
+                            </td>
+                            <td>${formatTime(test.TimeMs)}</td>
+                            <td>${formatMemory(test.MemoryKB)}</td>
+                            <td>${test.Score}</td>
+                        `;
+                        
+                        testsBody.appendChild(row);
+                        
+                        // 添加详情行
+                        const detailRow = document.createElement('tr');
+                        detailRow.id = `testDetail${test.TestIndex}`;
+                        detailRow.className = 'test-detail';
+                        
+                        let outputContent = test.Output || '(无输出)';
+                        let expectedContent = test.Expected || '(无预期输出)';
+                        
+                        detailRow.innerHTML = `
+                            <td colspan="5">
+                                <div class="test-detail-content">
+                                    <div class="detail-grid">
+                                        <div class="info-item">
+                                            <span class="info-label">测试点</span>
+                                            <span class="info-value">${test.TestIndex}</span>
+                                        </div>
+                                        <div class="info-item">
+                                            <span class="info-label">状态</span>
+                                            <span class="info-value ${test.Passed ? 'test-passed' : 'test-failed'}">
+                                                ${test.Passed ? '通过' : '失败'}
+                                            </span>
+                                        </div>
+                                        <div class="info-item">
+                                            <span class="info-label">运行时间</span>
+                                            <span class="info-value">${formatTime(test.TimeMs)}</span>
+                                        </div>
+                                        <div class="info-item">
+                                            <span class="info-label">内存使用</span>
+                                            <span class="info-value">${formatMemory(test.MemoryKB)}</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="io-section">
+                                        <div class="io-header">程序输出</div>
+                                        <div class="io-content">${escapeHtml(outputContent)}</div>
+                                    </div>
+                                    
+                                    ${!test.Passed ? `
+                                    <div class="io-section">
+                                        <div class="io-header">预期输出</div>
+                                        <div class="io-content">${escapeHtml(expectedContent)}</div>
+                                    </div>
+                                    ` : ''}
+                                </div>
+                            </td>
+                        `;
+                        
+                        testsBody.appendChild(detailRow);
+                    });
+                } else {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td colspan="5" style="text-align: center; padding: 20px; color: #666;">
+                            暂无测试点数据
+                        </td>
+                    `;
+                    testsBody.appendChild(row);
+                }
+
+            } catch (error) {
+                console.error('Error loading submission:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = error.message;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // 页面加载时获取提交详情
+        document.addEventListener('DOMContentLoaded', loadSubmission);
+    </script>
+</body>
+</html>
