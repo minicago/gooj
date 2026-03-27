@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/minicago/gooj/sql_service"
@@ -48,7 +49,10 @@ type tokenInfo struct {
 	Expiry   time.Time
 }
 
-var tokenStore = make(map[string]tokenInfo)
+var (
+	tokenStore = make(map[string]tokenInfo)
+	tokenMutex sync.RWMutex
+)
 
 func generateToken() string {
 	b := make([]byte, 32)
@@ -58,27 +62,36 @@ func generateToken() string {
 
 func GenerateToken(username string) (string, time.Time) {
 	token := generateToken()
-	tokenStore[token] = tokenInfo{Username: username, Expiry: time.Now().Add(5 * time.Minute)}
-	return token, tokenStore[token].Expiry
+	expiry := time.Now().Add(5 * time.Minute)
+	tokenMutex.Lock()
+	tokenStore[token] = tokenInfo{Username: username, Expiry: expiry}
+	tokenMutex.Unlock()
+	return token, expiry
 }
 
 func ValidateToken(token string) bool {
+	tokenMutex.Lock()
 	info, exists := tokenStore[token]
 	if !exists || time.Now().After(info.Expiry) {
+		tokenMutex.Unlock()
 		return false
 	}
 	// Refresh token expiration
 	info.Expiry = time.Now().Add(5 * time.Minute)
 	tokenStore[token] = info
+	tokenMutex.Unlock()
 	return true
 }
 
 // GetUsernameFromToken returns the username bound to a token and whether it exists
 func GetUsernameFromToken(token string) (string, bool) {
+	tokenMutex.Lock()
 	info, exists := tokenStore[token]
 	if !exists || time.Now().After(info.Expiry) {
+		tokenMutex.Unlock()
 		return "", false
 	}
+	tokenMutex.Unlock()
 	return info.Username, true
 }
 

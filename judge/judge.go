@@ -64,20 +64,21 @@ func JudgeTest(cfg JudgeConfig) JudgeResult {
 	// Prepare Docker command with time and memory limits
 	absTmp, _ := filepath.Abs(cfg.WorkTmpPath)
 
-	shellCmd := fmt.Sprintf("/usr/bin/time -v -o time.log timeout %ds ./solution < in.in > out.out 2>runtime.err; echo $? > rc; cat out.out", int(cfg.TimeLimit+2))
+	shellCmd := fmt.Sprintf("/usr/bin/time -v -o time.log bash -c \"ulimit -t %d -m %d -s %d; ./solution < in.in > out.out 2>runtime.err; echo $? > rc; \" ", int(cfg.TimeLimit+1), cfg.MemLimit*1100, cfg.MemLimit*1100)
+	// shellCmd := "/usr/bin/time -v -o time.log ./solution < in.in > out.out 2>runtime.err; echo $? > rc; cat out.out"
 	dockerArgs := []string{
 		"run", "--rm",
 		"-v", absTmp + ":/work",
 		"-w", "/work",
 		"--network", "none",
-		"--memory", fmt.Sprintf("%dm", cfg.MemLimit+128),
+		"--memory", fmt.Sprintf("%dm", cfg.MemLimit*2),
 		"--pids-limit", "64",
 		"--cpu-shares", "128",
 		"gcc-with-time",
 		"bash", "-lc", shellCmd,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeLimit+2)*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeLimit+5)*time.Second)
 	cmd := exec.CommandContext(ctx, "docker", dockerArgs...)
 	var outb bytes.Buffer
 	var errb bytes.Buffer
@@ -93,6 +94,7 @@ func JudgeTest(cfg JudgeConfig) JudgeResult {
 		if err != nil {
 			return 0, 0
 		}
+		// fmt.Printf("time log:\n%s\n", string(data))
 		text := string(data)
 		memRe := regexp.MustCompile(`Maximum resident set size \(kbytes\):\s*(\d+)`)
 		if m := memRe.FindStringSubmatch(text); len(m) >= 2 {
@@ -113,16 +115,18 @@ func JudgeTest(cfg JudgeConfig) JudgeResult {
 
 	// Check for errors
 	if err != nil {
+		fmt.Printf("error : %v\n", err.Error())
 		// Read return code
 		rc := -1
 		if b, e := os.ReadFile(filepath.Join(absTmp, "rc")); e == nil {
 			if v, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
 				rc = v
+				fmt.Printf("Return code: %d\n", rc)
 			}
 		}
 		stderr := errb.String()
 
-		if strings.Contains(err.Error(), "context deadline exceeded") || rc == 124 {
+		if strings.Contains(err.Error(), "killed") || rc == 124 {
 			result.Status = "time_limit_exceeded"
 			result.Info = "Time limit exceeded"
 			tms, _ := parseTimeLog(filepath.Join(absTmp, "time.log"))
@@ -148,6 +152,20 @@ func JudgeTest(cfg JudgeConfig) JudgeResult {
 		}
 	}
 
+	result.RunTimeMs, result.MemoryKB = parseTimeLog(filepath.Join(absTmp, "time.log"))
+
+	if result.RunTimeMs > int(cfg.TimeLimit*1000) {
+		result.Status = "time_limit_exceeded"
+		result.Info = "Time limit exceeded"
+		return result
+	}
+
+	if result.MemoryKB > cfg.MemLimit*1024 {
+		result.Status = "memory_limit_exceeded"
+		result.Info = "Memory limit exceeded"
+		return result
+	}
+
 	// Success - read output and compare with expected
 	gotBytes, _ := os.ReadFile(filepath.Join(absTmp, "out.out"))
 	expectedBytes, _ := os.ReadFile(cfg.ExpectedPath)
@@ -164,7 +182,6 @@ func JudgeTest(cfg JudgeConfig) JudgeResult {
 	expected := normalize(expectedBytes)
 
 	// Parse time and memory
-	result.RunTimeMs, result.MemoryKB = parseTimeLog(filepath.Join(absTmp, "time.log"))
 
 	posGot := 0
 	posExpected := 0
@@ -483,6 +500,7 @@ func processJob(sub sql_service.Submission) {
 				}
 				testTimeMs := testResult.RunTimeMs
 				testMemKB := testResult.MemoryKB
+				testStatus := testResult.Status
 
 				// Store test result
 				results = append(results, sql_service.TestResult{
@@ -492,6 +510,7 @@ func processJob(sub sql_service.Submission) {
 					Expected:  testExpected,
 					TimeMs:    testTimeMs,
 					MemoryKB:  testMemKB,
+					Status:    testStatus,
 					Score:     0, // scoring can be implemented later based on test groups or other criteria
 				})
 

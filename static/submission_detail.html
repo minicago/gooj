@@ -171,7 +171,7 @@
         }
         
         .tests-table th {
-            background-color: #e9ecef;
+            background-color: #1500ff;
             font-weight: bold;
         }
         
@@ -219,8 +219,8 @@
         }
         
         .io-content {
-            background-color: #f8f9fa;
-            border: 1px solid #ddd;
+            background-color: #e9ecef;
+            border: 1px solid #dddddd;
             border-radius: 4px;
             padding: 10px;
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
@@ -367,12 +367,27 @@
             return statusMap[status] || status;
         }
 
+        function getStatusText(status) {
+            const statusMap = {
+                'accepted': '通过',
+                'wrong_answer': '答案错误',
+                'time_limit_exceeded': '时间超限',
+                'memory_limit_exceeded': '内存超限',
+                'runtime_error': '运行时错误',
+                'compile_error': '编译错误',
+                'skipped': '跳过',
+                'internal_error': '系统错误',
+                'compile_error': '编译错误'
+            };
+            return statusMap[status] || '未知错误';
+        }
+
         function formatStatusClass(status) {
             return `status-${status}`;
         }
 
         function formatTime(ms) {
-            if (ms === 0) return '-';
+            if (ms === 0) return '<10ms';
             return `${ms}ms`;
         }
 
@@ -473,12 +488,12 @@
                         const row = document.createElement('tr');
                         row.className = 'test-row';
                         row.onclick = () => toggleTestDetail(test.TestIndex);
-                        
+                        let statusText = test.Passed ? '通过' : getStatusText(test.Status);
                         row.innerHTML = `
                             <td>测试点 ${test.TestIndex}</td>
                             <td>
                                 <span class="${test.Passed ? 'test-passed' : 'test-failed'}">
-                                    ${test.Passed ? '通过' : '失败'}
+                                    ${statusText}
                                 </span>
                             </td>
                             <td>${formatTime(test.TimeMs)}</td>
@@ -496,6 +511,7 @@
                         let outputContent = test.Output || '(无输出)';
                         let expectedContent = test.Expected || '(无预期输出)';
                         
+                        let detailStatusText = test.Passed ? '通过' : getStatusText(test.Status);
                         detailRow.innerHTML = `
                             <td colspan="5">
                                 <div class="test-detail-content">
@@ -507,7 +523,7 @@
                                         <div class="info-item">
                                             <span class="info-label">状态</span>
                                             <span class="info-value ${test.Passed ? 'test-passed' : 'test-failed'}">
-                                                ${test.Passed ? '通过' : '失败'}
+                                                ${detailStatusText}
                                             </span>
                                         </div>
                                         <div class="info-item">
@@ -521,16 +537,9 @@
                                     </div>
                                     
                                     <div class="io-section">
-                                        <div class="io-header">程序输出</div>
+                                        <div class="io-header">Info</div>
                                         <div class="io-content">${escapeHtml(outputContent)}</div>
                                     </div>
-                                    
-                                    ${!test.Passed ? `
-                                    <div class="io-section">
-                                        <div class="io-header">预期输出</div>
-                                        <div class="io-content">${escapeHtml(expectedContent)}</div>
-                                    </div>
-                                    ` : ''}
                                 </div>
                             </td>
                         `;
