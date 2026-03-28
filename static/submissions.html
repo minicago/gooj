@@ -194,6 +194,7 @@
                     <th>ID</th>
                     <th>用户名</th>
                     <th>题目</th>
+                    <th>得分</th>
                     <th>状态</th>
                     <th>时间</th>
                     <th>内存</th>
@@ -271,7 +272,7 @@
         }
 
         function formatTime(ms) {
-            if (ms === 0) return '-';
+            if (ms === 0) return '<10ms';
             return `${ms}ms`;
         }
 
@@ -286,19 +287,19 @@
             return date.toLocaleString('zh-CN');
         }
 
-        function calculateMaxTimeMemory(submission) {
-            let maxTime = 0;
-            let maxMemory = 0;
+        // function calculateMaxTimeMemory(submission) {
+        //     let maxTime = 0;
+        //     let maxMemory = 0;
             
-            if (submission.TestResults && submission.TestResults.length > 0) {
-                submission.TestResults.forEach(test => {
-                    if (test.TimeMs > maxTime) maxTime = test.TimeMs;
-                    if (test.MemoryKB > maxMemory) maxMemory = test.MemoryKB;
-                });
-            }
+        //     if (submission.TestResults && submission.TestResults.length > 0) {
+        //         submission.TestResults.forEach(test => {
+        //             if (test.TimeMs > maxTime) maxTime = test.TimeMs;
+        //             if (test.MemoryKB > maxMemory) maxMemory = test.MemoryKB;
+        //         });
+        //     }
             
-            return { maxTime, maxMemory };
-        }
+        //     return { maxTime, maxMemory };
+        // }
 
         async function loadSubmissions() {
             document.getElementById('loading').style.display = 'block';
@@ -332,20 +333,21 @@
                 tbody.innerHTML = '';
 
                 data.submissions.forEach(submission => {
-                    const { maxTime, maxMemory } = calculateMaxTimeMemory(submission);
+                    // const { maxTime, maxMemory } = calculateMaxTimeMemory(submission);
                     const row = document.createElement('tr');
                     
                     row.innerHTML = `
                         <td>${submission.ID}</td>
                         <td>${submission.Username}</td>
                         <td>${submission.ProblemID}</td>
+                        <td>${submission.Score}</td>
                         <td>
                             <span class="status-badge ${formatStatusClass(submission.Status)}">
                                 ${formatStatus(submission.Status)}
                             </span>
                         </td>
-                        <td>${formatTime(maxTime)}</td>
-                        <td>${formatMemory(maxMemory)}</td>
+                        <td>${formatTime(submission.MaxTimeMs)}</td>
+                        <td>${formatMemory(submission.MaxMemoryKB)}</td>
                         <td>${formatDateTime(submission.CreatedAt)}</td>
                         <td>
                             <button class="view-btn" onclick="viewSubmission(${submission.ID})">查看详情</button>

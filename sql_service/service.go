@@ -189,11 +189,33 @@ func PopQueuedSubmission() (Submission, error) {
 }
 
 func UpdateSubmissionResult(subID uint, status string, results []TestResult) error {
+
 	if db == nil {
 		return errors.New("db not initialized")
 	}
+
+	maxMemKb := 0
+	maxTimeMs := 0
+	totalScore := 0
+
+	for _, result := range results {
+		totalScore += result.Score
+		if result.MemoryKB > maxMemKb {
+			maxMemKb = result.MemoryKB
+		}
+		if result.TimeMs > maxTimeMs {
+			maxTimeMs = result.TimeMs
+		}
+	}
+
 	return db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&Submission{}).Where("id = ?", subID).Updates(map[string]interface{}{"status": status, "updated_at": time.Now()}).Error; err != nil {
+		if err := tx.Model(&Submission{}).Where("id = ?", subID).Updates(map[string]interface{}{
+			"status":        status,
+			"updated_at":    time.Now(),
+			"max_memory_kb": maxMemKb,
+			"max_time_ms":   maxTimeMs,
+			"score":         totalScore,
+		}).Error; err != nil {
 			return err
 		}
 		for i := range results {

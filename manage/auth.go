@@ -62,7 +62,7 @@ func generateToken() string {
 
 func GenerateToken(username string) (string, time.Time) {
 	token := generateToken()
-	expiry := time.Now().Add(5 * time.Minute)
+	expiry := time.Now().Add(60 * time.Minute)
 	tokenMutex.Lock()
 	tokenStore[token] = tokenInfo{Username: username, Expiry: expiry}
 	tokenMutex.Unlock()

@@ -413,7 +413,7 @@ func processJob(sub sql_service.Submission) {
 		// compile error
 		status = "compile_error"
 		outStr := cout.String() + "\n" + cerr.String()
-		results = append(results, sql_service.TestResult{TestIndex: 0, Passed: false, Output: outStr, Expected: "", TimeMs: 0, MemoryKB: 0})
+		results = append(results, sql_service.TestResult{TestIndex: 0, Passed: false, Output: outStr, TimeMs: 0, MemoryKB: 0})
 		_ = sql_service.UpdateSubmissionResult(sub.ID, status, results)
 		appendMessage(fmt.Sprintf("%s submitted %d => COMPILE_ERROR : %v output=%s", sub.Username, sub.ProblemID, err, outStr))
 		return
@@ -434,7 +434,6 @@ func processJob(sub sql_service.Submission) {
 	}
 
 	allPassed := true
-	totalScore := 0
 
 	for _, testGroup := range testGroups {
 
@@ -465,7 +464,6 @@ func processJob(sub sql_service.Submission) {
 						TestIndex: i,
 						Passed:    false,
 						Output:    "Skipped due to previous failure in group",
-						Expected:  "",
 						TimeMs:    0,
 						MemoryKB:  0,
 						Status:    "skipped",
@@ -492,12 +490,6 @@ func processJob(sub sql_service.Submission) {
 				testIdx := i
 				testPassed := testResult.Passed
 				testOutput := testResult.Info // for WA, Info contains the mismatch details; for RE, it contains the error message
-				testExpected := ""
-				if !testPassed && testResult.Status == "wrong_answer" {
-					// For WA, we need to provide expected output
-					expected, _ := os.ReadFile(expectedPath)
-					testExpected = string(expected)
-				}
 				testTimeMs := testResult.RunTimeMs
 				testMemKB := testResult.MemoryKB
 				testStatus := testResult.Status
@@ -507,11 +499,11 @@ func processJob(sub sql_service.Submission) {
 					TestIndex: testIdx,
 					Passed:    testPassed,
 					Output:    testOutput,
-					Expected:  testExpected,
-					TimeMs:    testTimeMs,
-					MemoryKB:  testMemKB,
-					Status:    testStatus,
-					Score:     0, // scoring can be implemented later based on test groups or other criteria
+					// Expected:  testExpected,
+					TimeMs:   testTimeMs,
+					MemoryKB: testMemKB,
+					Status:   testStatus,
+					Score:    0, // scoring can be implemented later based on test groups or other criteria
 				})
 
 				// Handle different statuses
@@ -524,7 +516,6 @@ func processJob(sub sql_service.Submission) {
 			if groupPassed {
 				// if all tests in this group passed, we can continue to next group
 				results[len(results)-1].Score = int(testGroupMap["score"].(float64)) // assign group score to last test in group; adjust as needed for different scoring schemes
-				totalScore += int(testGroupMap["score"].(float64))
 			}
 		}
 	}

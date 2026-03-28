@@ -41,6 +41,8 @@ type Submission struct {
 	Code        string `gorm:"type:text"`
 	Status      string `gorm:"size:32"` // queued, running, ok, wa, tle, mle, compile_error, runtime_error
 	Score       int    // Total score obtained
+	MaxMemoryKB int    // Maximum memory usage in KB
+	MaxTimeMs   int    // Maximum time usage in ms
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	TestResults []TestResult `gorm:"foreignKey:SubmissionID"`
@@ -53,7 +55,6 @@ type TestResult struct {
 	TestIndex    int  `gorm:"column:test_index"`
 	Passed       bool
 	Output       string `gorm:"type:text"`
-	Expected     string `gorm:"type:text"`
 	TimeMs       int
 	MemoryKB     int
 	Status       string `gorm:"size:32"`

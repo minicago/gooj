@@ -80,12 +80,17 @@ func GetSubmissionsHandler(w http.ResponseWriter, r *http.Request) {
 	err := query.Order("created_at DESC").
 		Offset(offset).
 		Limit(limit).
-		Preload("TestResults").
+		// Preload("TestResults").
 		Find(&submissions).Error
 
 	if err != nil {
 		http.Error(w, "Failed to fetch submissions", http.StatusInternalServerError)
 		return
+	}
+
+	//do not send code to user
+	for i := range submissions {
+		submissions[i].Code = ""
 	}
 
 	// Prepare response

@@ -51,8 +51,8 @@
         if (j.config) {
           const cfg = j.config;
           let txt = '';
-          if (cfg.time_limit_ms) txt += '时间限制: ' + cfg.time_limit_ms + ' ms; ';
-          if (cfg.memory_mb) txt += '内存限制: ' + cfg.memory_mb + ' MB; ';
+          if (cfg.time_limit) txt += '时间限制: ' + cfg.time_limit + ' s; ';
+          if (cfg.memory_limit) txt += '内存限制: ' + cfg.memory_limit + ' MB; ';
           document.getElementById('limits').textContent = txt;
         }
         document.getElementById('toSubmit').href = '/submit?id=' + encodeURIComponent(id);

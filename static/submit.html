@@ -20,6 +20,7 @@
           <div>题目：<strong id="problemId"></strong></div>
         </div>
         <div id="limits"></div>
+        <div id="result" style="margin-top: 10px; white-space: pre-wrap; font-family: monospace;"></div>
       </div>
 
       <div class="card">
@@ -34,15 +35,11 @@ int main(){
       </div>
       <div class="actions">
         <button id="submitBtn" class="success">提交并运行</button>
-        <button id="loadLastBtn" class="secondary">获取上次提交</button>
         <a href="/submissions" class="button secondary">查看所有提交</a>
         <span id="status"></span>
       </div>
 
-      <div class="card">
-        <h2>运行结果</h2>
-        <div id="result" class="result-preview"></div>
-      </div>
+
     </div>
 
     <script>
@@ -52,8 +49,13 @@ int main(){
       }
       const username = localStorage.getItem('username') || '';
       const problemId = qsGet('id') || '';
-      document.getElementById('username').textContent = username;
-      document.getElementById('problemId').textContent = problemId;
+      
+      // 安全设置元素内容
+      const usernameElement = document.getElementById('username');
+      if (usernameElement) usernameElement.textContent = username;
+      
+      const problemIdElement = document.getElementById('problemId');
+      if (problemIdElement) problemIdElement.textContent = problemId;
 
       async function loadProblem() {
         if (!problemId) return;
@@ -64,8 +66,8 @@ int main(){
           if (j.config) {
             const cfg = j.config;
             let txt = '';
-            if (cfg.time_limit_ms) txt += '时间限制: ' + cfg.time_limit_ms + ' ms; ';
-            if (cfg.memory_mb) txt += '内存限制: ' + cfg.memory_mb + ' MB; ';
+            if (cfg.time_limit) txt += '时间限制: ' + cfg.time_limit + ' s; ';
+            if (cfg.memory_limit) txt += '内存限制: ' + cfg.memory_limit + ' MB; ';
             document.getElementById('limits').textContent = txt;
           }
         } catch (e) { console.error(e); }
@@ -76,85 +78,139 @@ int main(){
         if (!problemId) return alert('缺少题目编号');
         const code = document.getElementById('code').value;
         const submitBtn = document.getElementById('submitBtn');
+        const statusElement = document.getElementById('status');
         submitBtn.disabled = true;
-        document.getElementById('status').textContent = '提交中...';
-        const res = await fetch('/submit', {
-          method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ username, problem: problemId, code })
-        });
-        if (!res.ok) { submitBtn.disabled = false; return alert('提交失败'); }
-        const j = await res.json();
-        const submissionId = j.submission_id || null;
-        document.getElementById('status').textContent = j.status || 'queued';
-        document.getElementById('result').textContent = '等待评测...';
-        const userEnc = encodeURIComponent(username);
-
-        // poll with small initial delay and gradual backoff
-        let delay = 600;
-        let attempts = 0;
-        const maxDelay = 3000;
-        const pollOnce = async () => {
-          const r = await fetch(`/last_submission?username=${userEnc}&problem=${encodeURIComponent(problemId)}`);
-          if (!r.ok) return false;
-          const data = await r.json();
-          if (!data || !data.submission) return false;
-          const sub = data.submission;
-          // if submissionId provided, ensure it's the same submission (avoid race)
-          if (submissionId && sub.ID && Number(sub.ID) !== Number(submissionId)) {
-            // not the one yet
-            return false;
-          }
-          if (!sub || sub.Status === 'queued' || sub.Status === 'running') return false;
-          // show results
-          const results = data.results || [];
-          let out = '';
-          if (sub.Status === 'compile_error' && sub.Code == null) {
-            // fallback if compile error stored differently
-          }
-          if (sub.Status === 'compile_error' && sub.CompileError) {
-            out += 'Compile error:\n' + sub.CompileError + '\n';
-          }
-          // print per-test results robustly accepting different key casings
-          results.forEach(t => {
-            const idx = t.TestIndex || t.test_index || t.testIndex || '?';
-            const passed = (t.Passed !== undefined) ? (t.Passed ? 'PASS' : 'FAIL') : (t.passed ? (t.passed ? 'PASS' : 'FAIL') : '');
-            const timeMs = t.TimeMs || t.time_ms || t.timeMs || 0;
-            const memKB = t.MemoryKB || t.memory_kb || t.memoryKB || 0;
-            out += `Test ${idx}: ${passed} time_ms=${timeMs} memory_kb=${memKB}\n`;
-            if (t.Output) out += 'Output:\n' + t.Output + '\n';
-            if (t.Output == null && t.output) out += 'Output:\n' + t.output + '\n';
+        if (statusElement) statusElement.textContent = '提交中...';
+        try {
+          const res = await fetch('/submit', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ username, problem: problemId, code })
           });
-          document.getElementById('result').textContent = out || '评测完成';
-          document.getElementById('status').textContent = sub.Status || sub.status;
-          submitBtn.disabled = false;
-          return true;
-        };
-
-        // loop until finished
-        (async function pollLoop(){
-          while (true) {
-            try {
-              const done = await pollOnce();
-              if (done) break;
-            } catch (e) {}
-            attempts++;
-            await new Promise(r => setTimeout(r, delay));
-            delay = Math.min(maxDelay, Math.floor(delay * 1.3));
+          if (!res.ok) { submitBtn.disabled = false; return alert('提交失败'); }
+          const j = await res.json();
+          const submissionId = j.submission_id || null;
+          document.getElementById('status').textContent = j.status || 'queued';
+          document.getElementById('result').textContent = '等待评测...';
+          if (submissionId) {
+            // 立即跳转到提交详情页
+            window.location.href = `/submission/${submissionId}`;
+            return;
           }
-        })();
-      });
-
-      document.getElementById('loadLastBtn').addEventListener('click', async () => {
-        if (!username) return alert('未登录');
-        if (!problem) return alert('缺少题目编号');
-        const r = await fetch(`/last_submission?username=${encodeURIComponent(username)}&problem=${encodeURIComponent(problem)}`);
-        if (!r.ok) return alert('未找到上次提交');
-        const j = await r.json();
-        if (j.submission && j.submission.code) document.getElementById('code').value = j.submission.code;
-        if (j.results) document.getElementById('result').textContent = JSON.stringify(j.results, null, 2);
+          // 如果没有 submissionId，继续原有逻辑（极少发生）
+          const userEnc = encodeURIComponent(username);
+          let delay = 600;
+          let attempts = 0;
+          const maxDelay = 3000;
+          const pollOnce = async () => {
+            const r = await fetch(`/last_submission?username=${userEnc}&problem=${encodeURIComponent(problemId)}`);
+            if (!r.ok) return false;
+            const data = await r.json();
+            if (!data || !data.submission) return false;
+            const sub = data.submission;
+            if (submissionId && sub.submission_id && Number(sub.submission_id) !== Number(submissionId)) {
+              return false;
+            }
+            if (!sub || sub.Status === 'queued' || sub.Status === 'running') return false;
+            const results = data.results || [];
+            let out = '';
+            if (sub.Status === 'compile_error' && sub.Code == null) {
+            }
+            if (sub.Status === 'compile_error' && sub.CompileError) {
+              out += 'Compile error:\n' + sub.CompileError + '\n';
+            }
+            results.forEach(t => {
+              const idx = t.TestIndex || t.test_index || t.testIndex || '?';
+              const passed = (t.Passed !== undefined) ? (t.Passed ? 'PASS' : 'FAIL') : (t.passed ? (t.passed ? 'PASS' : 'FAIL') : '');
+              const timeMs = t.TimeMs || t.time_ms || t.timeMs || 0;
+              const memKB = t.MemoryKB || t.memory_kb || t.memoryKB || 0;
+              out += `Test ${idx}: ${passed} time_ms=${timeMs} memory_kb=${memKB}\n`;
+              if (t.Output) out += 'Output:\n' + t.Output + '\n';
+              if (t.Output == null && t.output) out += 'Output:\n' + t.output + '\n';
+            });
+            document.getElementById('result').textContent = out || '评测完成';
+            document.getElementById('status').textContent = sub.Status || sub.status;
+            submitBtn.disabled = false;
+            // 评测完成后跳转
+            if (sub.submission_id) {
+              window.location.href = `/submission/${sub.submission_id}`;
+            }
+            return true;
+          };
+          (async function pollLoop(){
+            while (true) {
+              try {
+                const done = await pollOnce();
+                if (done) break;
+              } catch (e) {}
+              attempts++;
+              await new Promise(r => setTimeout(r, delay));
+              delay = Math.min(maxDelay, Math.floor(delay * 1.3));
+            }
+          })();
+        } catch (e) {
+          submitBtn.disabled = false;
+          alert('提交异常');
+        }
       });
 
       loadProblem();
     </script>
+
+	<script>
+		function submitForm() {
+			const form = document.getElementById('submit-form');
+			const formData = new FormData(form);
+			
+			fetch('/submit', {
+				method: 'POST',
+				body: JSON.stringify({
+					username: formData.get('username'),
+					problem: formData.get('problem'),
+					code: formData.get('code')
+				}),
+				headers: {
+					'Content-Type': 'application/json'
+				}
+			})
+			.then(response => response.json())
+			.then(data => {
+				if (data.status === 'queued') {
+					// 跳转到提交详情页面
+					window.location.href = `/submission/${data.submission_id}`;
+				} else {
+					alert('Submission failed');
+				}
+			})
+			.catch(error => {
+				console.error('Error:', error);
+				alert('Submission error');
+			});
+		}
+		
+		// 加载上次提交的代码
+		document.addEventListener('DOMContentLoaded', function() {
+			const username = localStorage.getItem('username') || '';
+			const problemId = qsGet('id') || '';
+			const codeTextarea = document.getElementById('code');
+			
+			if (!codeTextarea) return; // Safety check
+			
+			// 初始加载
+			loadLastCode();
+			
+			function loadLastCode() {
+				if (username && problemId) {
+					fetch(`/last_submission?username=${username}&problem=${problemId}`)
+						.then(response => response.json())
+						.then(data => {
+							if (data.submission && data.submission.code) {
+								codeTextarea.value = data.submission.code;
+							}
+						})
+						.catch(error => console.error('Error loading last code:', error));
+				}
+			}
+		});
+	</script>
   </body>
 </html>
