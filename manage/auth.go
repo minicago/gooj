@@ -7,11 +7,67 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/minicago/gooj/sql_service"
 )
+
+type tokenOpType int
+
+var tokenOpChan chan tokenOp
+
+func InitTokenStore() {
+	tokenOpChan = make(chan tokenOp)
+	go tokenServer()
+}
+
+func tokenServer() {
+	store := make(map[string]tokenInfo)
+	for op := range tokenOpChan {
+		switch op.op {
+		case tokenOpSet:
+			store[op.token] = op.info
+			if op.result != nil {
+				op.result <- tokenOpResult{valid: true}
+			}
+		case tokenOpGet:
+			info, exists := store[op.token]
+			if op.result != nil {
+				op.result <- tokenOpResult{info: info, exists: exists}
+			}
+		case tokenOpValidate:
+			info, exists := store[op.token]
+			valid := exists && !time.Now().After(info.Expiry)
+			if valid {
+				// refresh expiry
+				info.Expiry = time.Now().Add(60 * time.Minute)
+				store[op.token] = info
+			}
+			if op.result != nil {
+				op.result <- tokenOpResult{info: info, exists: exists, valid: valid}
+			}
+		}
+	}
+}
+
+const (
+	tokenOpSet tokenOpType = iota
+	tokenOpGet
+	tokenOpValidate
+)
+
+type tokenOp struct {
+	op     tokenOpType
+	token  string
+	info   tokenInfo
+	result chan tokenOpResult
+}
+
+type tokenOpResult struct {
+	info   tokenInfo
+	exists bool
+	valid  bool
+}
 
 type contextKey string
 
@@ -49,11 +105,6 @@ type tokenInfo struct {
 	Expiry   time.Time
 }
 
-var (
-	tokenStore = make(map[string]tokenInfo)
-	tokenMutex sync.RWMutex
-)
-
 func generateToken() string {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)
@@ -63,36 +114,41 @@ func generateToken() string {
 func GenerateToken(username string) (string, time.Time) {
 	token := generateToken()
 	expiry := time.Now().Add(60 * time.Minute)
-	tokenMutex.Lock()
-	tokenStore[token] = tokenInfo{Username: username, Expiry: expiry}
-	tokenMutex.Unlock()
+	result := make(chan tokenOpResult)
+	tokenOpChan <- tokenOp{
+		op:     tokenOpSet,
+		token:  token,
+		info:   tokenInfo{Username: username, Expiry: expiry},
+		result: result,
+	}
+	<-result // wait for set
 	return token, expiry
 }
 
 func ValidateToken(token string) bool {
-	tokenMutex.Lock()
-	info, exists := tokenStore[token]
-	if !exists || time.Now().After(info.Expiry) {
-		tokenMutex.Unlock()
-		return false
+	result := make(chan tokenOpResult)
+	tokenOpChan <- tokenOp{
+		op:     tokenOpValidate,
+		token:  token,
+		result: result,
 	}
-	// Refresh token expiration
-	info.Expiry = time.Now().Add(5 * time.Minute)
-	tokenStore[token] = info
-	tokenMutex.Unlock()
-	return true
+	res := <-result
+	return res.valid
 }
 
 // GetUsernameFromToken returns the username bound to a token and whether it exists
 func GetUsernameFromToken(token string) (string, bool) {
-	tokenMutex.Lock()
-	info, exists := tokenStore[token]
-	if !exists || time.Now().After(info.Expiry) {
-		tokenMutex.Unlock()
+	result := make(chan tokenOpResult)
+	tokenOpChan <- tokenOp{
+		op:     tokenOpGet,
+		token:  token,
+		result: result,
+	}
+	res := <-result
+	if !res.exists || time.Now().After(res.info.Expiry) {
 		return "", false
 	}
-	tokenMutex.Unlock()
-	return info.Username, true
+	return res.info.Username, true
 }
 
 func CurrentUsername(r *http.Request) string {

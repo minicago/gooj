@@ -23,6 +23,7 @@ func Init() {
 		log.Fatalf("super root fail: %v", err.Error())
 	}
 	rand.Seed(time.Now().UnixNano())
+	InitTokenStore()
 }
 
 func CreateUserHandler(w http.ResponseWriter, r *http.Request) {
