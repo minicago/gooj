@@ -64,6 +64,8 @@ func NewRouter() http.Handler {
 	}).Methods("GET")
 	// API to fetch statement.md and config.json for a problem
 	r.HandleFunc("/api/problem/{id}", ProblemDataHandler).Methods("GET")
+	// API to update problem metadata
+	r.HandleFunc("/api/problem/{id}/update", UpdateProblemHandler).Methods("POST")
 	r.HandleFunc("/problems", ProblemsHandler).Methods("GET")
 	r.HandleFunc("/register", RegisterHandler).Methods("POST")
 	r.HandleFunc("/login", LoginHandler).Methods("POST")

@@ -201,6 +201,160 @@ func ImportTuackPackage(zipPath, name, title string) (*ImportResult, error) {
 	}, nil
 }
 
+// UpdateTuackPackage updates an existing problem from a tuack package zip file
+func UpdateTuackPackage(zipPath string, problemID uint) (*ImportResult, error) {
+	// 1. Open zip file
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open zip file: %v", err)
+	}
+	defer reader.Close()
+
+	// 2. Extract to temporary directory
+	tempDir, err := os.MkdirTemp("", "tuack-update-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Extract all files
+	for _, file := range reader.File {
+		filePath := filepath.Join(tempDir, file.Name)
+
+		// Create directory structure
+		if file.FileInfo().IsDir() {
+			os.MkdirAll(filePath, os.ModePerm)
+			continue
+		}
+
+		// Create parent directories
+		if err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
+			return nil, fmt.Errorf("failed to create directory for %s: %v", file.Name, err)
+		}
+
+		// Extract file
+		dstFile, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
+		if err != nil {
+			return nil, fmt.Errorf("failed to create file %s: %v", file.Name, err)
+		}
+
+		srcFile, err := file.Open()
+		if err != nil {
+			dstFile.Close()
+			return nil, fmt.Errorf("failed to open zip entry %s: %v", file.Name, err)
+		}
+
+		_, err = io.Copy(dstFile, srcFile)
+		srcFile.Close()
+		dstFile.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract file %s: %v", file.Name, err)
+		}
+	}
+
+	// 3. Find the tuack project root directory
+	tuackRoot := findTuackRoot(tempDir)
+	if tuackRoot == "" {
+		return nil, errors.New("could not find tuack project root in zip file")
+	}
+
+	// 4. Read and parse conf.yaml
+	config, err := parseConfig(filepath.Join(tuackRoot, "conf.yaml"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse conf.yaml: %v", err)
+	}
+
+	// 5. Read and process statement
+	rawStatement, err := readStatement(tuackRoot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read statement: %v", err)
+	}
+
+	// 6. Calculate total test count from data
+	testCount := 0
+	for _, group := range config.Data {
+		for _, caseItem := range group.Cases {
+			switch v := caseItem.(type) {
+			case int:
+				testCount++
+			case float64:
+				testCount++
+			case string:
+				// Try to parse as number
+				if _, err := strconv.Atoi(v); err == nil {
+					testCount++
+				}
+			}
+		}
+	}
+
+	// Get existing problem from database
+	db := sql_service.DB()
+	if db == nil {
+		return nil, errors.New("database not initialized")
+	}
+
+	var problem sql_service.Problem
+	if err := db.First(&problem, problemID).Error; err != nil {
+		return nil, fmt.Errorf("problem not found: %v", err)
+	}
+
+	// Get problem directory
+	problemDir := filepath.Join("data", "problem", strconv.FormatUint(uint64(problem.ID), 10))
+
+	// Remove old test data and down directory
+	testsDir := filepath.Join(problemDir, "tests")
+	downDir := filepath.Join(problemDir, "down")
+	os.RemoveAll(testsDir)
+	os.RemoveAll(downDir)
+
+	// 7. Copy down directory if exists (needed before processing statement for samples)
+	downSrc := filepath.Join(tuackRoot, "down")
+	if _, err := os.Stat(downSrc); err == nil {
+		downDst := filepath.Join(problemDir, "down")
+		if err := copyDirectory(downSrc, downDst); err != nil {
+			return nil, fmt.Errorf("failed to copy down directory: %v", err)
+		}
+	}
+
+	// 8. Process statement to handle templates and samples
+	statement, err := ProcessStatement(rawStatement, problemDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process statement: %v", err)
+	}
+
+	// 9. Write statement.md
+	statementPath := filepath.Join(problemDir, "statement.md")
+	if err := os.WriteFile(statementPath, []byte(statement), 0644); err != nil {
+		return nil, fmt.Errorf("failed to write statement.md: %v", err)
+	}
+
+	// 10. Copy test data
+	if err := copyTestData(tuackRoot, problemDir, config); err != nil {
+		return nil, fmt.Errorf("failed to copy test data: %v", err)
+	}
+
+	// 11. Create config.json with grouped test cases
+	if err := createConfigJSON(problemDir, config, testCount); err != nil {
+		return nil, fmt.Errorf("failed to create config.json: %v", err)
+	}
+
+	// 12. Update problem in database
+	problem.Description = statement
+	problem.TestsCount = testCount
+
+	if err := db.Save(&problem).Error; err != nil {
+		return nil, fmt.Errorf("failed to update problem in database: %v", err)
+	}
+
+	return &ImportResult{
+		ProblemID: problem.ID,
+		Name:      problem.Name,
+		Title:     problem.Title,
+		Message:   "Problem updated successfully",
+	}, nil
+}
+
 func parseConfig(configPath string) (*TuackConfig, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {

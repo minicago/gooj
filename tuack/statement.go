@@ -20,6 +20,7 @@ func ProcessStatement(statement string, problemDir string) (string, error) {
 		"output format": "输出格式",
 		"sample":        "样例",
 		"hints":         "提示",
+		"hint":          "提示",
 		"subtasks":      "子任务",
 	}
 

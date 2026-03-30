@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/minicago/gooj/manage"
 	"github.com/minicago/gooj/sql_service"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
@@ -120,7 +121,137 @@ func ProblemDataHandler(w http.ResponseWriter, r *http.Request) {
 		),
 	)
 	_ = md.Convert(stmtBytes, &buf)
-	out := map[string]interface{}{"statement": string(stmtBytes), "statement_html": buf.String(), "config": cfg}
+	out := map[string]interface{}{
+		"id":             problem.ID,
+		"name":           problem.Name,
+		"title":          problem.Title,
+		"description":    problem.Description,
+		"time_limit_ms":  problem.TimeLimitMs,
+		"mem_limit_mb":   problem.MemLimitMB,
+		"tests_count":    problem.TestsCount,
+		"statement":      string(stmtBytes),
+		"statement_html": buf.String(),
+		"config":         cfg,
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// UpdateProblemHandler handles updating problem metadata
+func UpdateProblemHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+
+	// Check permission
+	currentUser := manage.CurrentUsername(r)
+	if !manage.CheckUserPermission(currentUser, "EditPermission") {
+		http.Error(w, "permission denied", http.StatusForbidden)
+		return
+	}
+
+	// Parse request body
+	type UpdateRequest struct {
+		Name        string `json:"name"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		TimeLimitMs int    `json:"time_limit_ms"`
+		MemLimitMB  int    `json:"mem_limit_mb"`
+	}
+
+	var req UpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Find problem in database
+	var problem sql_service.Problem
+	db := sql_service.DB()
+	if db == nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	// First try to find by ID
+	err := db.First(&problem, id).Error
+	if err != nil {
+		// If not found by ID, try to find by Name
+		err = db.Where("name = ?", id).First(&problem).Error
+		if err != nil {
+			http.Error(w, "problem not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	// Update problem fields if provided
+	if req.Name != "" {
+		problem.Name = req.Name
+	}
+	if req.Title != "" {
+		problem.Title = req.Title
+	}
+	if req.Description != "" {
+		problem.Description = req.Description
+	}
+	if req.TimeLimitMs > 0 {
+		problem.TimeLimitMs = req.TimeLimitMs
+	}
+	if req.MemLimitMB > 0 {
+		problem.MemLimitMB = req.MemLimitMB
+	}
+
+	// Save to database
+	if err := db.Save(&problem).Error; err != nil {
+		http.Error(w, "failed to save problem", http.StatusInternalServerError)
+		return
+	}
+
+	// Update config.json if time_limit or mem_limit changed
+	if req.TimeLimitMs > 0 || req.MemLimitMB > 0 {
+		problemDir := filepath.Join("data", "problem", strconv.FormatUint(uint64(problem.ID), 10))
+		cfgPath := filepath.Join(problemDir, "config.json")
+
+		var cfg map[string]interface{}
+		if cfgBytes, err := os.ReadFile(cfgPath); err == nil {
+			_ = json.Unmarshal(cfgBytes, &cfg)
+		} else {
+			cfg = make(map[string]interface{})
+		}
+
+		if req.TimeLimitMs > 0 {
+			cfg["time_limit"] = req.TimeLimitMs
+		}
+		if req.MemLimitMB > 0 {
+			cfg["memory_limit"] = req.MemLimitMB
+		}
+
+		if cfgBytes, err := json.MarshalIndent(cfg, "", "    "); err == nil {
+			_ = os.WriteFile(cfgPath, cfgBytes, 0644)
+		}
+	}
+
+	// Update statement.md if description changed
+	if req.Description != "" {
+		problemDir := filepath.Join("data", "problem", strconv.FormatUint(uint64(problem.ID), 10))
+		stmtPath := filepath.Join(problemDir, "statement.md")
+		_ = os.WriteFile(stmtPath, []byte(req.Description), 0644)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "success",
+		"problem": map[string]interface{}{
+			"id":            problem.ID,
+			"name":          problem.Name,
+			"title":         problem.Title,
+			"description":   problem.Description,
+			"time_limit_ms": problem.TimeLimitMs,
+			"mem_limit_mb":  problem.MemLimitMB,
+			"tests_count":   problem.TestsCount,
+		},
+	})
 }

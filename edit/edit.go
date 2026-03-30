@@ -137,10 +137,10 @@ func ImportTuackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use existing problem name and title
-	result, err := tuack.ImportTuackPackage(zipPath, problem.Name, problem.Title)
+	// Use existing problem name and title and update the problem
+	result, err := tuack.UpdateTuackPackage(zipPath, problem.ID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to import tuack package: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to update tuack package: %v", err), http.StatusInternalServerError)
 		return
 	}
 

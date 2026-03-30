@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>题面编辑 - Gooj</title>
+    <title>题目编辑 - Gooj</title>
     <link rel="stylesheet" href="/static/style.css" />
     <style>
       .tabs {
@@ -58,6 +58,72 @@
         white-space: pre-wrap;
         font-family: monospace;
       }
+      .problem-info {
+        background: #f5f5f5;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+      }
+      .problem-info h3 {
+        margin-top: 0;
+        margin-bottom: 15px;
+        color: #333;
+      }
+      .info-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+      }
+      .info-item {
+        background: white;
+        padding: 10px;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+      }
+      .info-item label {
+        display: block;
+        font-size: 0.85em;
+        color: #666;
+        margin-bottom: 5px;
+      }
+      .info-item input {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      .info-item input[readonly] {
+        background: #f9f9f9;
+        color: #666;
+      }
+      .test-groups {
+        margin-top: 15px;
+        background: white;
+        padding: 15px;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+      }
+      .test-groups h4 {
+        margin-top: 0;
+        margin-bottom: 10px;
+        color: #333;
+      }
+      .test-group-item {
+        background: #f9f9f9;
+        padding: 10px;
+        margin-bottom: 10px;
+        border-radius: 4px;
+        font-size: 0.9em;
+      }
+      .form-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+      }
+      .form-actions button {
+        flex: 1;
+      }
     </style>
   </head>
   <body>
@@ -66,13 +132,49 @@
         <a href="/problemlist">题目列表</a>
         <a href="/">返回首页</a>
       </nav>
-      <h1>题面编辑</h1>
+      <h1>题目编辑</h1>
 
       <div class="card">
         <div class="form-group">
-          <label>题目ID</label>
-          <input id="problemID" type="text" placeholder="请输入题目ID" />
+          <label>题目 ID</label>
+          <input id="problemID" type="text" placeholder="请输入题目 ID 或通过 URL 参数加载" />
           <button id="loadBtn" class="info" style="margin-left: 10px">加载</button>
+        </div>
+
+        <!-- Problem Information Display -->
+        <div id="problemInfoSection" class="problem-info" style="display: none;">
+          <h3>题目信息</h3>
+          <div class="info-grid">
+            <div class="info-item">
+              <label>题目 ID</label>
+              <input type="text" id="infoID" readonly />
+            </div>
+            <div class="info-item">
+              <label>题目名称</label>
+              <input type="text" id="infoName" placeholder="题目名称" />
+            </div>
+            <div class="info-item">
+              <label>题目标题</label>
+              <input type="text" id="infoTitle" placeholder="题目标题" />
+            </div>
+            <div class="info-item">
+              <label>时间限制 (ms)</label>
+              <input type="number" id="infoTimeLimit" placeholder="毫秒" />
+            </div>
+            <div class="info-item">
+              <label>内存限制 (MB)</label>
+              <input type="number" id="infoMemLimit" placeholder="MB" />
+            </div>
+            <div class="info-item">
+              <label>测试点数量</label>
+              <input type="number" id="infoTestsCount" readonly />
+            </div>
+          </div>
+          
+          <div class="test-groups" id="testGroupsSection" style="display: none;">
+            <h4>数据分组信息</h4>
+            <div id="testGroupsList"></div>
+          </div>
         </div>
 
         <div class="tabs">
@@ -87,7 +189,10 @@
               <label>题面内容 (Markdown)</label>
               <textarea id="markdownEditor" class="code-editor" style="height: 400px" placeholder="请输入或加载题面内容..."></textarea>
             </div>
-            <button type="submit" class="success" style="width: 100%">保存修改</button>
+            <div class="form-actions">
+              <button type="submit" class="success">保存题面</button>
+              <button type="button" id="saveAllBtn" class="primary">保存所有更改</button>
+            </div>
           </form>
         </div>
 
@@ -115,13 +220,22 @@
     <script>
       // State
       let currentProblemID = '';
-      let tuackContent = '';
+      let currentProblemData = null;
 
       // URL parameter handling
       function getURLParameter(name) {
         const urlParams = new URLSearchParams(window.location.search);
         return urlParams.get(name);
       }
+
+      // Initialize from URL if problem parameter exists
+      window.addEventListener('DOMContentLoaded', () => {
+        const problemParam = getURLParameter('problem');
+        if (problemParam) {
+          document.getElementById('problemID').value = problemParam;
+          loadProblemData(problemParam);
+        }
+      });
 
       // Tab switching
       document.querySelectorAll('.tab').forEach(tab => {
@@ -138,23 +252,60 @@
         if (!problemID) return;
         try {
           const res = await fetch(`/api/problem/${encodeURIComponent(problemID)}`);
-          if (!res.ok) throw new Error('加载失败: ' + res.statusText);
+          if (!res.ok) throw new Error('加载失败：' + res.statusText);
           const data = await res.json();
+          
           currentProblemID = problemID;
+          currentProblemData = data;
+          
+          // Fill in problem info
           document.getElementById('problemID').value = problemID;
+          document.getElementById('infoID').value = data.id || '';
+          document.getElementById('infoName').value = data.name || '';
+          document.getElementById('infoTitle').value = data.title || '';
+          document.getElementById('infoTimeLimit').value = data.time_limit_ms || '';
+          document.getElementById('infoMemLimit').value = data.mem_limit_mb || '';
+          document.getElementById('infoTestsCount').value = data.tests_count || '';
           document.getElementById('markdownEditor').value = data.statement || '';
-          alert('题面加载成功');
+          
+          // Display test groups
+          if (data.config && data.config.test_cases) {
+            const testGroupsList = document.getElementById('testGroupsList');
+            testGroupsList.innerHTML = '';
+            data.config.test_cases.forEach((group, index) => {
+              const groupDiv = document.createElement('div');
+              groupDiv.className = 'test-group-item';
+              const cases = group.cases ? group.cases.join(', ') : '';
+              groupDiv.innerHTML = `<strong>分组 ${index + 1}:</strong> 测试点 ${cases} | 分数：${group.score || 0}`;
+              testGroupsList.appendChild(groupDiv);
+            });
+            document.getElementById('testGroupsSection').style.display = 'block';
+          } else {
+            document.getElementById('testGroupsSection').style.display = 'none';
+          }
+          
+          // Show problem info section
+          document.getElementById('problemInfoSection').style.display = 'block';
+          
+          alert('题目信息加载成功');
         } catch (e) {
-          alert('加载题面失败: ' + e.message);
+          alert('加载题目失败：' + e.message);
         }
       }
 
-      // Markdown form submission
+      // Load button click handler
+      document.getElementById('loadBtn').addEventListener('click', () => {
+        const problemID = document.getElementById('problemID').value.trim();
+        if (!problemID) return alert('请输入题目 ID');
+        loadProblemData(problemID);
+      });
+
+      // Markdown form submission (save statement only)
       document.getElementById('markdownForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const problemID = document.getElementById('problemID').value.trim();
         const statement = document.getElementById('markdownEditor').value;
-        if (!problemID || !statement) return alert('请输入题目ID并加载或输入题面内容');
+        if (!problemID || !statement) return alert('请输入题目 ID 并加载或输入题面内容');
         try {
           const res = await fetch('/edit/modify', {
             method: 'POST',
@@ -164,7 +315,40 @@
           if (!res.ok) throw new Error(await res.text());
           alert('题面修改成功');
         } catch (e) {
-          alert('修改失败: ' + e.message);
+          alert('修改失败：' + e.message);
+        }
+      });
+
+      // Save all changes (problem metadata + statement)
+      document.getElementById('saveAllBtn').addEventListener('click', async () => {
+        const problemID = document.getElementById('problemID').value.trim();
+        if (!problemID) return alert('请先加载题目');
+        
+        const updateData = {
+          name: document.getElementById('infoName').value.trim(),
+          title: document.getElementById('infoTitle').value.trim(),
+          description: document.getElementById('markdownEditor').value,
+          time_limit_ms: parseInt(document.getElementById('infoTimeLimit').value) || 0,
+          mem_limit_mb: parseInt(document.getElementById('infoMemLimit').value) || 0
+        };
+        
+        if (!updateData.name || !updateData.title) {
+          return alert('题目名称和标题不能为空');
+        }
+        
+        try {
+          const res = await fetch(`/api/problem/${encodeURIComponent(problemID)}/update`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updateData)
+          });
+          if (!res.ok) throw new Error(await res.text());
+          const data = await res.json();
+          alert('所有更改保存成功！');
+          // Reload to show updated data
+          await loadProblemData(problemID);
+        } catch (e) {
+          alert('保存失败：' + e.message);
         }
       });
 
@@ -173,7 +357,6 @@
       const fileInput = document.getElementById('tuackFile');
       const fileNameDisplay = document.getElementById('fileName');
       const preview = document.getElementById('tuackPreview');
-      const saveBtn = document.getElementById('saveTuackBtn');
 
       dropZone.addEventListener('click', () => fileInput.click());
 
@@ -207,7 +390,7 @@
 
         const problemID = document.getElementById('problemID').value.trim();
         if (!problemID) {
-          alert('请先输入题目ID');
+          alert('请先输入题目 ID');
           return;
         }
 
@@ -224,63 +407,22 @@
 
           if (!res.ok) {
             const errorText = await res.text();
-            throw new Error('导入失败: ' + errorText);
+            throw new Error('导入失败：' + errorText);
           }
 
           const data = await res.json();
           preview.innerHTML = `<p style="color: green;">导入成功！</p>
-            <p>题目名称: ${data.name || ''}</p>
-            <p>题目标题: ${data.title || ''}</p>
+            <p>题目名称：${data.name || ''}</p>
+            <p>题目标题：${data.title || ''}</p>
             <p>题面已更新，测试数据已导入</p>`;
 
           // Reload problem data to show updated statement
           await loadProblemData(problemID);
         } catch (e) {
-          alert('处理 Tuack 文件失败: ' + e.message);
-          preview.innerHTML = `<p style="color: red;">处理失败: ${e.message}</p>`;
+          alert('处理 Tuack 文件失败：' + e.message);
+          preview.innerHTML = `<p style="color: red;">处理失败：${e.message}</p>`;
         }
       }
-
-      // Save tuack as statement
-      saveBtn.addEventListener('click', async () => {
-        const problemID = document.getElementById('problemID').value.trim();
-        const renderedStatement = preview.innerText;
-        if (!problemID || !renderedStatement) return alert('请先加载题目ID并上传Tuack文件');
-        try {
-          const res = await fetch('/edit/modify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ problem_id: problemID, new_statement: renderedStatement })
-          });
-          if (!res.ok) throw new Error(await res.text());
-          alert('题面保存成功');
-        } catch (e) {
-          alert('保存失败: ' + e.message);
-        }
-      });
-
-      // Load button
-      document.getElementById('loadBtn').addEventListener('click', () => {
-        const problemID = document.getElementById('problemID').value.trim();
-        if (problemID) {
-          loadProblemData(problemID);
-        } else {
-          alert('请输入题目ID');
-        }
-      });
-
-      // Auto-load from URL parameters on page load
-      window.addEventListener('DOMContentLoaded', () => {
-        const problemID = getURLParameter('problem') || getURLParameter('id');
-        const mode = getURLParameter('mode') || 'markdown';
-        if (problemID) {
-          document.getElementById('problemID').value = problemID;
-          loadProblemData(problemID);
-        }
-        if (mode === 'tuack') {
-          document.querySelector('[data-tab="tuack"]').click();
-        }
-      });
     </script>
   </body>
 </html>
