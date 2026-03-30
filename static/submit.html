@@ -195,16 +195,16 @@ int main(){
 			
 			if (!codeTextarea) return; // Safety check
 			
-			// 初始加载
-			loadLastCode();
+			// 将上次提交的代码加载到code textarea中
+      loadLastCode();
 			
 			function loadLastCode() {
 				if (username && problemId) {
 					fetch(`/last_submission?username=${username}&problem=${problemId}`)
 						.then(response => response.json())
 						.then(data => {
-							if (data.submission && data.submission.code) {
-								codeTextarea.value = data.submission.code;
+					if (data.submission && data.submission.Code) {
+						codeTextarea.value = data.submission.Code;
 							}
 						})
 						.catch(error => console.error('Error loading last code:', error));

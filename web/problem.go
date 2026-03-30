@@ -50,24 +50,7 @@ func LastSubmissionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve problem ID or Name to actual problem name for consistency
-	problemName := prob
-	db := sql_service.DB()
-	if db != nil {
-		// Try to find problem by ID
-		var problem sql_service.Problem
-		if err := db.First(&problem, prob).Error; err == nil {
-			// Found by ID, use the Name
-			problemName = problem.Name
-		} else {
-			// Try to find by Name
-			if err := db.Where("name = ?", prob).First(&problem).Error; err == nil {
-				problemName = problem.Name
-			}
-		}
-	}
-
-	sub, results, err := sql_service.GetLastSubmission(user, problemName)
+	sub, results, err := sql_service.GetLastSubmission(user, prob)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

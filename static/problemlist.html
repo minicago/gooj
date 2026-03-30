@@ -25,16 +25,6 @@
         <span id="pageInfo"></span>
         <button id="next" class="secondary">下一页</button>
       </div>
-
-      <div class="card">
-        <h2>获取上次提交</h2>
-        <div style="display: flex; gap: 12px; align-items: center;">
-          <label style="margin-bottom: 0;">题目名</label>
-          <input id="lastProblem" />
-          <button id="getLast">获取</button>
-        </div>
-        <div id="lastResult" class="result-preview" style="margin-top: 16px;"></div>
-      </div>
     </div>
 
     <script>
@@ -64,14 +54,14 @@
           
           try {
             // Get problem stats
-            const statsRes = await fetch(`/api/problem_stats?problem=${encodeURIComponent(p.Name)}`)
+            const statsRes = await fetch(`/api/problem_stats?problem=${encodeURIComponent(p.ID)}`)
             if (statsRes.ok) {
               const stats = await statsRes.json()
               passedCount = stats.passed_count || 0
               userBestScore = stats.user_best_score || 0
             }
           } catch (error) {
-            console.error(`Error loading stats for problem ${p.Name}:`, error)
+            console.error(`Error loading stats for problem ${p.ID}:`, error)
           }
           
           return {
@@ -91,7 +81,7 @@
             <td>${p.Title||''}</td>
             <td>${p.passedCount}</td>
             <td>${p.userBestScore}</td>
-            <td><a href="/problem?id=${encodeURIComponent(p.Name)}">查看题目</a></td>
+            <td><a href="/problem?id=${encodeURIComponent(p.ID)}">查看题目</a></td>
           `
           tbody.appendChild(tr)
         })
@@ -113,17 +103,6 @@
       }
       document.getElementById('prev').addEventListener('click', ()=>{ if(page>1){page--; load()} })
       document.getElementById('next').addEventListener('click', ()=>{ page++; load() })
-
-      document.getElementById('getLast').addEventListener('click', async ()=>{
-        const username = localStorage.getItem('username')
-        if(!username) return alert('请先登录')
-        const problem = document.getElementById('lastProblem').value.trim()
-        if(!problem) return alert('请输入题目名')
-        const res = await fetch(`/last_submission?username=${encodeURIComponent(username)}&problem=${encodeURIComponent(problem)}`)
-        if(!res.ok) return alert('请求失败')
-        const j = await res.json()
-        document.getElementById('lastResult').textContent = JSON.stringify(j, null, 2)
-      })
 
       load()
     </script>

@@ -20,6 +20,10 @@ func ModifyProblemStatementHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	var req reqBody
 	_ = json.NewDecoder(r.Body).Decode(&req)
+	if !manage.CheckUserPermission(manage.CurrentUsername(r), "EditPermission") {
+		http.Error(w, "permission denied", http.StatusForbidden)
+		return
+	}
 	if req.ProblemID == "" || req.NewStatement == "" {
 		http.Error(w, "missing fields", http.StatusBadRequest)
 		return

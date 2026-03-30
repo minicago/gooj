@@ -149,9 +149,9 @@ func GetProblemStatsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	problem := r.URL.Query().Get("problem")
-	if problem == "" {
-		http.Error(w, "Problem name required", http.StatusBadRequest)
+	problemID := r.URL.Query().Get("problem")
+	if problemID == "" {
+		http.Error(w, "Problem ID required", http.StatusBadRequest)
 		return
 	}
 
@@ -160,7 +160,7 @@ func GetProblemStatsHandler(w http.ResponseWriter, r *http.Request) {
 	// Get total number of users who passed this problem
 	var passedCount int64
 	err := db.Model(&sql_service.Submission{}).
-		Where("problem = ? AND status = 'ok'", problem).
+		Where("problem_id = ? AND status = 'accepted'", problemID).
 		Distinct("username").
 		Count(&passedCount).Error
 
@@ -175,22 +175,24 @@ func GetProblemStatsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// For this system, we'll consider "ok" as 100 points, others as 0
 	// You might want to adjust this based on your scoring system
-	err = db.Where("username = ? AND problem = ?", currentUsername, problem).
-		Order("CASE WHEN status = 'ok' THEN 1 ELSE 2 END, created_at DESC").
+	err = db.Where("problem_id = ? AND username = ?", problemID, currentUsername).
+		Order("score DESC").
 		First(&userBestSubmission).Error
 
-	if err == nil && userBestSubmission.Status == "ok" {
-		userBestScore = 100
+	if err == nil {
+		userBestScore = userBestSubmission.Score
+	} else {
+		userBestScore = 0
 	}
 
 	// Get total submission count for this problem
 	var totalSubmissions int64
 	db.Model(&sql_service.Submission{}).
-		Where("problem = ?", problem).
+		Where("problem_id = ?", problemID).
 		Count(&totalSubmissions)
 
 	response := map[string]interface{}{
-		"problem":           problem,
+		"problem_id":        problemID,
 		"passed_count":      passedCount,
 		"user_best_score":   userBestScore,
 		"total_submissions": totalSubmissions,

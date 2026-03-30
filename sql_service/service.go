@@ -250,12 +250,15 @@ func UpdateSubmissionResultWithScore(subID uint, status string, score int, resul
 	})
 }
 
-func GetLastSubmission(username, problem string) (Submission, []TestResult, error) {
+func GetLastSubmission(username, problemID string) (Submission, []TestResult, error) {
 	if db == nil {
 		return Submission{}, nil, errors.New("db not initialized")
 	}
+
+	// First, get the Problem ID by problem name
+
 	var s Submission
-	if err := db.Where("username = ? AND problem = ?", username, problem).Order("created_at desc").First(&s).Error; err != nil {
+	if err := db.Where("username = ? AND problem_id = ?", username, problemID).Order("created_at desc").First(&s).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// silent not found: return zero values without error
 			return Submission{}, nil, nil
