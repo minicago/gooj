@@ -64,14 +64,18 @@ func JudgeTest(cfg JudgeConfig) JudgeResult {
 	// Prepare Docker command with time and memory limits
 	absTmp, _ := filepath.Abs(cfg.WorkTmpPath)
 
-	// Simple shell command - run solution with ulimit for backup time limit
-	shellCmd := fmt.Sprintf("/usr/bin/time -v -o time.log ./solution < in.in > out.out 2>runtime.err; echo $? > rc")
+	// Simple shell command - run solution with ulimit for backup time limit and stack size
+	stackLimitKB := cfg.MemLimit * 1024
+	shellCmd := fmt.Sprintf("ulimit -s %d && /usr/bin/time -v -o time.log ./solution < in.in > out.out 2>runtime.err; echo $? > rc", stackLimitKB)
+	// Use unique container name to ensure cleanup even if docker process is killed
+	containerName := fmt.Sprintf("judge-%d", time.Now().UnixNano())
 	dockerArgs := []string{
-		"run", "--rm",
+		"run",
+		"--name", containerName,
 		"-v", absTmp + ":/work",
 		"-w", "/work",
 		"--network", "none",
-		"--memory", fmt.Sprintf("%dm", cfg.MemLimit*2),
+		"--memory", fmt.Sprintf("%dm", cfg.MemLimit+256),
 		"--pids-limit", "64",
 		"--cpu-shares", "128",
 		"gcc-with-time",
@@ -80,6 +84,7 @@ func JudgeTest(cfg JudgeConfig) JudgeResult {
 
 	// Use context timeout for 2x time limit + buffer
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(int(cfg.TimeLimit*2)+5)*time.Second)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", dockerArgs...)
 	var outb bytes.Buffer
 	var errb bytes.Buffer
@@ -87,7 +92,19 @@ func JudgeTest(cfg JudgeConfig) JudgeResult {
 	cmd.Stderr = &errb
 
 	err = cmd.Run()
-	cancel()
+
+	// Force cleanup the container regardless of exit status
+	// Use "-t 2" to give container 2 seconds to stop gracefully before SIGKILL
+	if _, err := exec.Command("docker", "stop", "-t", "2", containerName).CombinedOutput(); err != nil {
+		// Container might already be stopped or not exist, force remove it
+		exec.Command("docker", "rm", "-f", containerName).Run()
+	} else {
+		// Successfully stopped, now remove
+		exec.Command("docker", "rm", containerName).Run()
+	}
+	if err != nil {
+		fmt.Printf("docker run error: %v\n", err)
+	}
 
 	// Parse time and memory from time.log
 	parseTimeLog := func(path string) (timeMs int, memKB int) {
@@ -405,8 +422,9 @@ func processJob(sub sql_service.Submission) {
 	compileCmd := "g++ solution.cpp -O2 -std=c++17 -o solution 2>compile.err; if [ -s compile.err ]; then cat compile.err >&2; exit 2; fi"
 	// compilation can require significantly more memory than runtime limits; raise compile memory cap
 	compileMem := 512
-	dockerCompileArgs := []string{"run", "--rm", "-v", absTmp + ":/work", "-w", "/work", "--network", "none", "--memory", fmt.Sprintf("%dm", compileMem), "--cpus", "1.0", "gcc-with-time", "bash", "-lc", fmt.Sprintf("%v", compileCmd)}
-	// dockerCompileArgs := []string{"run", "--rm", "-v", absTmp + ":/work", "-w", "/work", "--network", "none", "--memory", fmt.Sprintf("%dm", compileMem), "--cpus", "1.0", "gcc:12", "bash", "-lc", compileCmd}
+	compileContainerName := fmt.Sprintf("compile-%d", time.Now().UnixNano())
+	dockerCompileArgs := []string{"run", "--name", compileContainerName, "-v", absTmp + ":/work", "-w", "/work", "--network", "none", "--memory", fmt.Sprintf("%dm", compileMem), "--cpus", "1.0", "gcc-with-time", "bash", "-lc", fmt.Sprintf("%v", compileCmd)}
+	// dockerCompileArgs := []string{"run", "--name", compileContainerName, "-v", absTmp + ":/work", "-w", "/work", "--network", "none", "--memory", fmt.Sprintf("%dm", compileMem), "--cpus", "1.0", "gcc:12", "bash", "-lc", compileCmd}
 	// increase compile timeout to allow for image/pulled layers and heavier builds
 	cctx, ccancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer ccancel()
@@ -416,7 +434,14 @@ func processJob(sub sql_service.Submission) {
 	ccmd.Stderr = &cerr
 	ccmd.Stdout = &cout
 	// log.Printf("running compile: docker %s", strings.Join(dockerCompileArgs, " "))
-	if err := ccmd.Run(); err != nil {
+	err = ccmd.Run()
+	// Force cleanup the container: try graceful stop first, then force remove
+	if _, err := exec.Command("docker", "stop", "-t", "2", compileContainerName).CombinedOutput(); err != nil {
+		exec.Command("docker", "rm", "-f", compileContainerName).Run()
+	} else {
+		exec.Command("docker", "rm", compileContainerName).Run()
+	}
+	if err != nil {
 		// compile error
 		status = "compile_error"
 		outStr := cout.String() + "\n" + cerr.String()
