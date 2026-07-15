@@ -68,7 +68,7 @@
         }
         
         .submissions-table th {
-            background-color: #0022ff;
+            background-color: #2d5a87;
             font-weight: bold;
         }
         
@@ -84,36 +84,49 @@
             text-transform: uppercase;
         }
         
-        .status-ok {
+        .status-ok,
+        .status-accepted {
             background-color: #d4edda;
             color: #155724;
         }
         
-        .status-wa {
+        .status-wa,
+        .status-wrong_answer,
+        .status-not-accepted {
             background-color: #f8d7da;
             color: #721c24;
         }
         
-        .status-tle {
+        .status-tle,
+        .status-time_limit_exceeded {
             background-color: #fff3cd;
             color: #856404;
         }
         
-        .status-mle {
+        .status-mle,
+        .status-memory_limit_exceeded {
             background-color: #d1ecf1;
             color: #0c5460;
         }
         
         .status-compile_error,
-        .status-runtime_error {
+        .status-runtime_error,
+        .status-internal_error {
             background-color: #f5c6cb;
             color: #721c24;
         }
         
         .status-queued,
-        .status-running {
+        .status-running,
+        .status-skipped,
+        .status-cancelled {
             background-color: #cce5ff;
             color: #004085;
+        }
+
+        .status-score_cancelled {
+            background-color: #e2e3e5;
+            color: #6c757d;
         }
         
         .view-btn {
@@ -129,6 +142,29 @@
         .view-btn:hover {
             background-color: #545b62;
         }
+
+        .row-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .act-btn {
+            padding: 4px 8px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #fff;
+        }
+
+        .act-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .act-btn.rejudge { background-color: #2d5a87; }
+        .act-btn.rejudge:hover { background-color: #234a70; }
+        .act-btn.cancel-eval { background-color: #d97706; }
+        .act-btn.cancel-eval:hover { background-color: #b45c04; }
+        .act-btn.cancel-score { background-color: #dc3545; }
+        .act-btn.cancel-score:hover { background-color: #b52a37; }
         
         .pagination {
             display: flex;
@@ -231,6 +267,22 @@
         let totalPages = 1;
         let currentProblem = '';
         let currentUser = '';
+        let isAdmin = false;
+
+        // 检查当前用户是否具有 EditPermission（管理员/老师）
+        async function checkAdmin() {
+            const uname = localStorage.getItem('username');
+            if (!uname) return false;
+            try {
+                const res = await fetch('/api/user_permissions?username=' +
+                    encodeURIComponent(uname) + '&permission=EditPermission');
+                const data = await res.json();
+                isAdmin = !!(data && data.permited);
+            } catch (e) {
+                isAdmin = false;
+            }
+            return isAdmin;
+        }
 
         function handleFilterKeyPress(event) {
             if (event.key === 'Enter') {
@@ -263,13 +315,22 @@
         function formatStatus(status) {
             const statusMap = {
                 'Accepted': '通过',
+                'accepted': '通过',
                 'Not Accepted': '未通过',
+                'not accepted': '未通过',
                 'ok': '通过',
                 'wa': '答案错误',
+                'wrong_answer': '答案错误',
                 'tle': '时间超限',
+                'time_limit_exceeded': '时间超限',
                 'mle': '内存超限',
+                'memory_limit_exceeded': '内存超限',
                 'compile_error': '编译错误',
                 'runtime_error': '运行时错误',
+                'skipped': '跳过',
+                'internal_error': '系统错误',
+                'cancelled': '已取消',
+                'score_cancelled': '成绩取消',
                 'queued': '等待评测',
                 'running': '评测中'
             };
@@ -277,7 +338,7 @@
         }
 
         function formatStatusClass(status) {
-            return `status-${status}`;
+            return 'status-' + String(status).toLowerCase().replace(/\s+/g, '-');
         }
 
         function formatTime(ms) {
@@ -345,6 +406,15 @@
                     // const { maxTime, maxMemory } = calculateMaxTimeMemory(submission);
                     const row = document.createElement('tr');
                     
+                    let adminButtons = '';
+                    if (isAdmin) {
+                        adminButtons = `
+                            <button class="act-btn rejudge" onclick="adminAction(${submission.id}, 'rejudge')">重测</button>
+                            <button class="act-btn cancel-eval" onclick="adminAction(${submission.id}, 'cancel_eval')">取消评测</button>
+                            <button class="act-btn cancel-score" onclick="adminAction(${submission.id}, 'cancel_score')">取消成绩</button>
+                        `;
+                    }
+
                     row.innerHTML = `
                         <td>${submission.id}</td>
                         <td>${submission.username}</td>
@@ -359,7 +429,10 @@
                         <td>${formatMemory(submission.max_memory_kb)}</td>
                         <td>${formatDateTime(submission.created_at)}</td>
                         <td>
-                            <button class="view-btn" onclick="viewSubmission(${submission.id})">查看详情</button>
+                            <div class="row-actions">
+                                <button class="view-btn" onclick="viewSubmission(${submission.id})">查看详情</button>
+                                ${adminButtons}
+                            </div>
                         </td>
                     `;
                     
@@ -389,8 +462,37 @@
             window.location.href = `/submission/${id}`;
         }
 
-        // 页面加载时获取提交记录
-        document.addEventListener('DOMContentLoaded', loadSubmissions);
+        const ADMIN_ACTION_CONF = {
+            'rejudge':      { path: 'rejudge',      label: '重测',     confirm: id => `确定重新评测提交 #${id} 吗？` },
+            'cancel_eval':  { path: 'cancel_eval',  label: '取消评测', confirm: id => `确定取消提交 #${id} 的评测吗？运行中的结果将被丢弃。` },
+            'cancel_score': { path: 'cancel_score', label: '取消成绩', confirm: id => `确定取消提交 #${id} 的成绩吗？记录保留但不计入排名。` }
+        };
+
+        async function adminAction(id, action) {
+            const conf = ADMIN_ACTION_CONF[action];
+            if (!conf) return;
+            if (!confirm(conf.confirm(id))) return;
+            try {
+                const res = await fetch(`/api/submission/${id}/${conf.path}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                if (!res.ok) {
+                    const txt = await res.text();
+                    throw new Error(txt || ('HTTP ' + res.status));
+                }
+                alert(conf.label + '成功');
+                loadSubmissions();
+            } catch (e) {
+                alert(conf.label + '失败：' + e.message);
+            }
+        }
+
+        // 页面加载时获取提交记录（先确认管理员权限，以决定是否显示操作按钮）
+        document.addEventListener('DOMContentLoaded', async () => {
+            await checkAdmin();
+            loadSubmissions();
+        });
     </script>
 </body>
 </html>

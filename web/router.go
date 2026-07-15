@@ -119,6 +119,7 @@ func NewRouter() http.Handler {
 	r.HandleFunc("/api/update_group_creator", manage.UpdateGroupCreatorHandler).Methods("POST")
 	r.HandleFunc("/api/delete_group", manage.DeleteGroupHandler).Methods("POST")
 	r.HandleFunc("/api/reset_password", manage.ResetPasswordHandler).Methods("POST")
+	r.HandleFunc("/api/change_password", ChangePasswordHandler).Methods("POST")
 	r.HandleFunc("/api/delete_user", manage.DeleteUserHandler).Methods("POST")
 	r.HandleFunc("/api/delete_problem", manage.DeleteProblemHandler).Methods("POST")
 
@@ -142,6 +143,24 @@ func NewRouter() http.Handler {
 	r.HandleFunc("/api/submissions", GetSubmissionsHandler).Methods("GET")
 	r.HandleFunc("/api/submission/{id}", GetSubmissionHandler).Methods("GET")
 	r.HandleFunc("/api/problem_stats", GetProblemStatsHandler).Methods("GET")
+
+	// Judge administration endpoints (require EditPermission)
+	r.HandleFunc("/api/submission/{id}/rejudge", RejudgeHandler).Methods("POST")
+	r.HandleFunc("/api/submission/{id}/cancel_eval", CancelEvalHandler).Methods("POST")
+	r.HandleFunc("/api/submission/{id}/cancel_score", CancelScoreHandler).Methods("POST")
+	r.HandleFunc("/api/submission/{id}/restore_score", RestoreScoreHandler).Methods("POST")
+	r.HandleFunc("/api/submissions/batch", BatchHandler).Methods("POST")
+	r.HandleFunc("/api/problem/{id}/rejudge_all", RejudgeProblemHandler).Methods("POST")
+
+	// Rating administration endpoints (require EditPermission)
+	r.HandleFunc("/api/rating/config", GetRatingConfigHandler).Methods("GET")
+	r.HandleFunc("/api/rating/config", SetRatingConfigHandler).Methods("POST")
+	r.HandleFunc("/api/rating/recompute", RecomputeRatingsHandler).Methods("POST")
+	r.HandleFunc("/api/rating/recompute/{id}", RecalculateContestRatingHandler).Methods("POST")
+
+	// Code similarity (plagiarism) check endpoints (require EditPermission)
+	r.HandleFunc("/api/similarity/check", SimilarityCheckHandler).Methods("POST")
+	r.HandleFunc("/api/similarity", SimilarityListHandler).Methods("GET")
 
 	// User profile endpoints
 	r.HandleFunc("/user/{username}", UserProfileHandler).Methods("GET")

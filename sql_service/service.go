@@ -216,6 +216,16 @@ func UpdateSubmissionResult(subID uint, status string, results []TestResult) err
 		return errors.New("db not initialized")
 	}
 
+	// If the submission was cancelled while being judged, discard the result so a
+	// cancelled (running/queued) submission is not overwritten by a late result.
+	var cur Submission
+	if err := db.First(&cur, subID).Error; err != nil {
+		return err
+	}
+	if cur.Status == "cancelled" {
+		return nil
+	}
+
 	maxMemKb := 0
 	maxTimeMs := 0
 	totalScore := 0
@@ -470,4 +480,68 @@ func ResetUserPassword(username string, newPassword string) error {
 	}
 
 	return nil
+}
+
+// ChangePassword lets a user change their own password after verifying the old
+// one. Admins who need to set a password without the old one should use
+// ResetUserPassword.
+func ChangePassword(username, oldPassword, newPassword string) error {
+	if db == nil {
+		return errors.New("db not initialized")
+	}
+	if len(newPassword) < 6 {
+		return errors.New("new password must be at least 6 characters")
+	}
+	var u User
+	if err := db.Where("username = ?", username).First(&u).Error; err != nil {
+		return errors.New("user not found")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(oldPassword)); err != nil {
+		return errors.New("current password is incorrect")
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	u.Password = string(hashed)
+	return db.Save(&u).Error
+}
+
+// OngoingContestProblemIDs returns the set of problem IDs that belong to a contest
+// currently in progress (start_at <= now < end_at). Used to restrict code/result
+// visibility during a contest.
+func OngoingContestProblemIDs() (map[uint]bool, error) {
+	if db == nil {
+		return nil, errors.New("db not initialized")
+	}
+	now := time.Now()
+	var contests []Contest
+	// Do NOT filter start_at/end_at in SQL: SQLite compares datetimes as TEXT and
+	// contest times are stored in UTC while time.Now() serializes with the local
+	// offset, so a string comparison across timezones is wrong (it can classify a
+	// running contest as ended). Fetch all contests and filter in Go with
+	// timezone-safe time.Time comparisons (start_at <= now < end_at).
+	if err := db.Preload("Problems").Find(&contests).Error; err != nil {
+		return nil, err
+	}
+	set := make(map[uint]bool)
+	for _, c := range contests {
+		if now.Before(c.StartAt) || !now.Before(c.EndAt) {
+			continue // not started yet, or already ended
+		}
+		for _, p := range c.Problems {
+			set[p.ID] = true
+		}
+	}
+	return set, nil
+}
+
+// IsProblemInOngoingContest reports whether the given problem is part of a contest
+// that is currently running.
+func IsProblemInOngoingContest(problemID uint) (bool, error) {
+	set, err := OngoingContestProblemIDs()
+	if err != nil {
+		return false, err
+	}
+	return set[problemID], nil
 }

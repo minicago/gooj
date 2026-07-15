@@ -176,9 +176,16 @@ func GetContestLeaderboard(contestID uint) ([]ContestRankingRow, error) {
 	}
 
 	var submissions []Submission
-	// Order by created_at desc to get the most recent submission first for each user+problem
+	// Order by created_at desc to get the most recent submission first for each user+problem.
+	//
+	// IMPORTANT: we deliberately do NOT filter the contest time window in SQL.
+	// SQLite stores datetimes as TEXT, and contest times are persisted in UTC
+	// (e.g. "2026-07-15 05:08:00+00:00") while submission.created_at is persisted
+	// with the local offset (e.g. "2026-07-15 13:04:12+08:00"). A raw SQL string
+	// comparison would compare "13:.." > "05:.." and silently drop every in-contest
+	// submission, producing an empty leaderboard. Instead we fetch the candidates
+	// and filter the window in Go using timezone-safe time.Time comparisons.
 	if err := db.Where("problem_id IN ?", problemIDs).
-		Where("created_at >= ? AND created_at <= ?", contest.StartAt, contest.EndAt).
 		Order("username asc, problem_id asc, created_at desc").
 		Find(&submissions).Error; err != nil {
 		return nil, err
@@ -188,6 +195,10 @@ func GetContestLeaderboard(contestID uint) ([]ContestRankingRow, error) {
 	lastSubmissionByUserProblem := make(map[string]map[uint]Submission)
 	for _, submission := range submissions {
 		if submission.Username == "" {
+			continue
+		}
+		// Timezone-safe contest window check (StartAt <= createdAt <= EndAt).
+		if submission.CreatedAt.Before(contest.StartAt) || submission.CreatedAt.After(contest.EndAt) {
 			continue
 		}
 		if _, ok := lastSubmissionByUserProblem[submission.Username]; !ok {

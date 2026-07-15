@@ -37,17 +37,31 @@ type Group struct {
 
 // Submission model represents a code submission
 type Submission struct {
-	ID          uint         `json:"id" gorm:"primaryKey"`
-	Username    string       `json:"username" gorm:"index;size:128"`
-	ProblemID   uint         `json:"problem_id" gorm:"index"`
-	Code        string       `json:"code" gorm:"type:text"`
-	Status      string       `json:"status" gorm:"size:32"` // queued, running, ok, wa, tle, mle, compile_error, runtime_error
-	Score       int          `json:"score"`                 // Total score obtained
-	MaxMemoryKB int          `json:"max_memory_kb"`         // Maximum memory usage in KB
-	MaxTimeMs   int          `json:"max_time_ms"`           // Maximum time usage in ms
-	CreatedAt   time.Time    `json:"created_at"`
-	UpdatedAt   time.Time    `json:"updated_at"`
-	TestResults []TestResult `json:"test_results" gorm:"foreignKey:SubmissionID"`
+	ID           uint         `json:"id" gorm:"primaryKey"`
+	Username     string       `json:"username" gorm:"index;size:128"`
+	ProblemID    uint         `json:"problem_id" gorm:"index"`
+	Code         string       `json:"code" gorm:"type:text"`
+	Status       string       `json:"status" gorm:"size:32"`             // queued, running, accepted, not accepted, compile_error, runtime_error, time_limit_exceeded, memory_limit_exceeded, internal_error, cancelled
+	Score        int          `json:"score"`                             // Total score obtained
+	MaxMemoryKB  int          `json:"max_memory_kb"`                     // Maximum memory usage in KB
+	MaxTimeMs    int          `json:"max_time_ms"`                       // Maximum time usage in ms
+	Disqualified bool         `json:"disqualified" gorm:"default:false"` // score cancelled / disqualified (record kept, score not counted)
+	CreatedAt    time.Time    `json:"created_at"`
+	UpdatedAt    time.Time    `json:"updated_at"`
+	TestResults  []TestResult `json:"test_results" gorm:"foreignKey:SubmissionID"`
+}
+
+// SimilarityRecord stores a pairwise code-similarity result between two submissions
+// of the same problem. Used by the plagiarism / similarity check feature.
+type SimilarityRecord struct {
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	ProblemID   uint      `json:"problem_id" gorm:"index"`
+	SubmissionA uint      `json:"submission_a"`
+	SubmissionB uint      `json:"submission_b"`
+	UserA       string    `json:"user_a" gorm:"size:128"`
+	UserB       string    `json:"user_b" gorm:"size:128"`
+	Similarity  float64   `json:"similarity"` // Jaccard similarity in [0,1]
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // TestResult model represents the result of a test case

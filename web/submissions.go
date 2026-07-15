@@ -73,9 +73,22 @@ func GetSubmissionsHandler(w http.ResponseWriter, r *http.Request) {
 		query = query.Where("username = ?", username)
 	}
 
-	// If user is not an edit admin, only show their own submissions
-	if !manage.CheckUserPermission(currentUsername, "EditPermission") {
-		query = query.Where("username = ?", currentUsername)
+	// Permission-based visibility:
+	// - Editors (teachers/admins) see everything.
+	// - Other users see all submissions EXCEPT those belonging to a problem that is
+	//   part of an *ongoing* contest and owned by someone else (contest code/results
+	//   are private until the contest ends). After a contest ends, all submissions
+	//   and code become public.
+	canViewAll := manage.CheckUserPermission(currentUsername, "EditPermission")
+	if !canViewAll {
+		ongoing, err := sql_service.OngoingContestProblemIDs()
+		if err == nil && len(ongoing) > 0 {
+			ongoingIDs := make([]uint, 0, len(ongoing))
+			for pid := range ongoing {
+				ongoingIDs = append(ongoingIDs, pid)
+			}
+			query = query.Where("username = ? OR problem_id NOT IN ?", currentUsername, ongoingIDs)
+		}
 	}
 
 	// Count total
@@ -98,22 +111,19 @@ func GetSubmissionsHandler(w http.ResponseWriter, r *http.Request) {
 		submissions[i].Code = ""
 	}
 
-	// Strip TestResults if TestVisible=false and user is not an editor
-	canViewAll := manage.CheckUserPermission(currentUsername, "EditPermission")
+	// Strip TestResults if TestVisible=false and user is not an editor. Note we keep
+	// the (already blanked) code out of the list; only evaluation details are hidden.
 	if !canViewAll && len(submissions) > 0 {
-		// Collect problem IDs to batch-load TestVisible flags
+		// Batch-load TestVisible flags for the involved problems.
 		problemIDs := make([]uint, 0, len(submissions))
 		for _, s := range submissions {
 			problemIDs = append(problemIDs, s.ProblemID)
 		}
-		var rows []struct {
-			ID          uint
-			TestVisible bool
-		}
-		db.Model(&sql_service.Problem{}).Where("id IN ?", problemIDs).Pluck("id, test_visible", &rows)
-		showMap := make(map[uint]bool)
-		for _, row := range rows {
-			showMap[row.ID] = row.TestVisible
+		var problems []sql_service.Problem
+		db.Model(&sql_service.Problem{}).Where("id IN ?", problemIDs).Find(&problems)
+		showMap := make(map[uint]bool, len(problems))
+		for _, p := range problems {
+			showMap[p.ID] = p.TestVisible
 		}
 		for i := range submissions {
 			if !showMap[submissions[i].ProblemID] {
@@ -162,14 +172,24 @@ func GetSubmissionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check permissions: user can view their own submission or edit admins can view any
-	if submission.Username != currentUsername && !manage.CheckUserPermission(currentUsername, "EditPermission") {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
+	// Permission check:
+	// - The owner and editors (teachers/admins) can always view.
+	// - Other users may view a submission only if its problem is NOT part of an
+	//   ongoing contest (contest results/code are private until the contest ends).
+	isOwner := submission.Username == currentUsername
+	canViewAll := manage.CheckUserPermission(currentUsername, "EditPermission")
+	if !isOwner && !canViewAll {
+		inOngoing, err := sql_service.IsProblemInOngoingContest(submission.ProblemID)
+		if err == nil && inOngoing {
+			http.Error(w, "Forbidden during contest", http.StatusForbidden)
+			return
+		}
 	}
 
-	// Strip TestResults and Score if the problem has TestVisible=false and user is not an editor
-	if !manage.CheckUserPermission(currentUsername, "EditPermission") {
+	// Strip TestResults and Score if the problem has TestVisible=false and user is not an editor.
+	// Code is still returned (it is public for non-contest problems), only the
+	// evaluation details are hidden.
+	if !canViewAll {
 		var problem sql_service.Problem
 		if err := db.First(&problem, submission.ProblemID).Error; err == nil && !problem.TestVisible {
 			submission.TestResults = nil
@@ -222,7 +242,7 @@ func GetProblemStatsHandler(w http.ResponseWriter, r *http.Request) {
 	// Get total number of users who passed this problem
 	var passedCount int64
 	err = db.Model(&sql_service.Submission{}).
-		Where("problem_id = ? AND status = 'ok'", problemID).
+		Where("problem_id = ? AND status IN ?", problemID, []string{"accepted", "ok"}).
 		Distinct("username").
 		Count(&passedCount).Error
 

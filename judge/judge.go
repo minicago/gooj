@@ -14,8 +14,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/minicago/gooj/config"
 	"github.com/minicago/gooj/sql_service"
 )
 
@@ -25,7 +27,8 @@ type JudgeConfig struct {
 	MemLimit     int     // memory limit in MB
 	InputPath    string  // path to input file
 	ExpectedPath string  // path to expected output file
-	WorkTmpPath  string  // path to temporary working directory for this test
+	WorkTmpPath  string  // parent temporary dir (host path) where the compiled `solution` binary lives; mounted as /work
+	TestIODir    string  // optional per-test subdir under WorkTmpPath for isolated I/O (in.in/out.out/...); enables concurrent multi-test judging
 }
 
 // JudgeResult contains the result of judging a single test case
@@ -55,17 +58,39 @@ func JudgeTest(cfg JudgeConfig) JudgeResult {
 		return result
 	}
 
-	// Write input file
-	if err := os.WriteFile(filepath.Join(cfg.WorkTmpPath, "in.in"), inputData, 0644); err != nil {
+	// Prepare Docker command with time and memory limits. The parent tmp dir (which
+	// holds the compiled `solution` binary) is mounted as /work so the binary is
+	// always reachable; per-test I/O files are kept in an isolated subdir under it.
+	absTmp, _ := filepath.Abs(cfg.WorkTmpPath)
+	ioDir := absTmp
+	if cfg.TestIODir != "" {
+		ioDir = filepath.Join(absTmp, cfg.TestIODir)
+		if err := os.MkdirAll(ioDir, 0755); err != nil {
+			result.Info = fmt.Sprintf("Failed to create test work dir: %v", err)
+			return result
+		}
+	}
+
+	// Write input file (into the isolated I/O dir)
+	if err := os.WriteFile(filepath.Join(ioDir, "in.in"), inputData, 0644); err != nil {
 		result.Info = fmt.Sprintf("Failed to write input: %v", err)
 		return result
 	}
 
-	// Prepare Docker command with time and memory limits
-	absTmp, _ := filepath.Abs(cfg.WorkTmpPath)
-
-	// Simple shell command - run solution with ulimit for backup time limit
-	shellCmd := fmt.Sprintf("/usr/bin/time -v -o time.log ./solution < in.in > out.out 2>runtime.err; echo $? > rc")
+	// Simple shell command - run solution. Program output/errors are redirected to
+	// files in the mounted work dir because a detached container's stdio is not
+	// captured by the docker client. The compiled binary always lives at /work/
+	// solution (the parent tmp dir, mounted as /work), so we run it via its
+	// ABSOLUTE path to avoid "No such file or directory" when the cwd is not /work.
+	// When TestIODir is set we cd into that subdir first (so concurrent tests never
+	// clobber each other's in.in/out.out/time.log/rc); the binary is still reached
+	// via the absolute /work/solution path.
+	var shellCmd string
+	if cfg.TestIODir != "" {
+		shellCmd = fmt.Sprintf("cd %s && /usr/bin/time -v -o time.log /work/solution < in.in > out.out 2>runtime.err; echo $? > rc", cfg.TestIODir)
+	} else {
+		shellCmd = "/usr/bin/time -v -o time.log /work/solution < in.in > out.out 2>runtime.err; echo $? > rc"
+	}
 	dockerArgs := []string{
 		"run", "--rm",
 		"-v", absTmp + ":/work",
@@ -74,20 +99,30 @@ func JudgeTest(cfg JudgeConfig) JudgeResult {
 		"--memory", fmt.Sprintf("%dm", cfg.MemLimit*2),
 		"--pids-limit", "64",
 		"--cpu-shares", "128",
+		// Give the program a generous stack (tied to the memory limit, in bytes)
+		// so legitimate deep recursion / large local arrays on big inputs do not
+		// crash. The hard memory cap (--memory) still bounds total usage, so a
+		// truly runaway recursion is stopped by the OOM killer (reported as MLE).
+		// NOTE: the --ulimit stack value is in BYTES; a previous fixed value of
+		// 262144 was only 256 KiB and caused correct solutions to stack-overflow
+		// (SIGSEGV) on large tests and be mis-reported as "wrong answer".
+		"--ulimit", fmt.Sprintf("stack=%d", cfg.MemLimit*1024*1024),
 		"gcc-with-time",
 		"bash", "-lc", shellCmd,
 	}
 
-	// Use context timeout for 2x time limit + buffer
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(int(cfg.TimeLimit*2)+5)*time.Second)
-	cmd := exec.CommandContext(ctx, "docker", dockerArgs...)
-	var outb bytes.Buffer
-	var errb bytes.Buffer
-	cmd.Stdout = &outb
-	cmd.Stderr = &errb
-
-	err = cmd.Run()
-	cancel()
+	// Run the container detached and enforce the time limit ourselves. This is the
+	// fix for the memory leak: previously exec.CommandContext killed the docker
+	// CLIENT on timeout, but the container kept running inside the daemon and was
+	// never removed (--rm only removes a container when *it* exits). Now the
+	// container is always forcibly removed on timeout, so it cannot leak memory.
+	timeout := time.Duration(int(cfg.TimeLimit*2)+5) * time.Second
+	timedOut, runErr := runContainerDetached(dockerArgs, timeout)
+	if runErr != nil {
+		result.Info = fmt.Sprintf("Failed to run docker: %v", runErr)
+		result.Status = "runtime_error"
+		return result
+	}
 
 	// Parse time and memory from time.log
 	parseTimeLog := func(path string) (timeMs int, memKB int) {
@@ -113,46 +148,57 @@ func JudgeTest(cfg JudgeConfig) JudgeResult {
 		return timeMs, memKB
 	}
 
-	// Check for errors
-	if err != nil {
-		fmt.Printf("error : %v\n", err.Error())
-		// Read return code
-		rc := -1
-		if b, e := os.ReadFile(filepath.Join(absTmp, "rc")); e == nil {
-			if v, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
-				rc = v
-				fmt.Printf("Return code: %d\n", rc)
-			}
-		}
-		stderr := errb.String()
+	result.RunTimeMs, result.MemoryKB = parseTimeLog(filepath.Join(ioDir, "time.log"))
 
-		if strings.Contains(err.Error(), "killed") || rc == 124 {
-			result.Status = "time_limit_exceeded"
-			result.Info = "Time limit exceeded"
-			tms, _ := parseTimeLog(filepath.Join(absTmp, "time.log"))
-			result.RunTimeMs = tms
-			return result
-		} else if rc == 137 {
-			result.Status = "memory_limit_exceeded"
-			result.Info = "Memory limit exceeded"
-			_, memKB := parseTimeLog(filepath.Join(absTmp, "time.log"))
-			result.MemoryKB = memKB
-			return result
-		} else {
-			result.Status = "runtime_error"
-			result.Info = stderr
-			// Also capture any output that was produced
-			if outb.Len() > 0 {
-				result.Info += "\nProgram output:\n" + outb.String()
-			}
-			tms, memKB := parseTimeLog(filepath.Join(absTmp, "time.log"))
-			result.RunTimeMs = tms
-			result.MemoryKB = memKB
-			return result
+	// Read the program's exit code (written by the shell via "echo $? > rc").
+	// IMPORTANT: this must be inspected on EVERY run, not only on timeout.
+	// Previously a program that crashed (e.g. stack overflow or OOM on large
+	// inputs) exited non-zero and produced no output, but because the exit code
+	// was ignored the empty output was compared against the answer and wrongly
+	// reported as "wrong answer" ("Output ended early"). We now map non-zero
+	// exit codes to the proper runtime / memory / time error.
+	rc := 0
+	if b, e := os.ReadFile(filepath.Join(ioDir, "rc")); e == nil {
+		if v, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+			rc = v
 		}
+	} else {
+		// The container never wrote the rc file (it was killed before finishing).
+		rc = -1
 	}
 
-	result.RunTimeMs, result.MemoryKB = parseTimeLog(filepath.Join(absTmp, "time.log"))
+	if timedOut || rc != 0 {
+		stderrBytes, _ := os.ReadFile(filepath.Join(ioDir, "runtime.err"))
+		stderr := strings.TrimSpace(string(stderrBytes))
+
+		switch {
+		case timedOut || rc == 124:
+			result.Status = "time_limit_exceeded"
+			result.Info = "Time limit exceeded"
+		case rc == 137:
+			// 137 = 128 + SIGKILL(9): usually the OOM killer (memory limit hit).
+			result.Status = "memory_limit_exceeded"
+			result.Info = "Memory limit exceeded"
+		default:
+			result.Status = "runtime_error"
+			switch {
+			case rc == 139:
+				// 139 = 128 + SIGSEGV(11): segmentation fault, often stack overflow.
+				result.Info = "Runtime error (segmentation fault / stack overflow, signal 11)"
+			case rc < 0:
+				result.Info = "Runtime error (program was terminated before completion)"
+			default:
+				result.Info = fmt.Sprintf("Runtime error (exit code %d)", rc)
+			}
+			if stderr != "" {
+				result.Info += "\n" + stderr
+			}
+			if ob, oe := os.ReadFile(filepath.Join(ioDir, "out.out")); oe == nil && len(ob) > 0 {
+				result.Info += "\nProgram output:\n" + string(ob)
+			}
+		}
+		return result
+	}
 
 	if result.RunTimeMs > int(cfg.TimeLimit*1000) {
 		result.Status = "time_limit_exceeded"
@@ -167,7 +213,7 @@ func JudgeTest(cfg JudgeConfig) JudgeResult {
 	}
 
 	// Success - read output and compare with expected
-	gotBytes, _ := os.ReadFile(filepath.Join(absTmp, "out.out"))
+	gotBytes, _ := os.ReadFile(filepath.Join(ioDir, "out.out"))
 	expectedBytes, _ := os.ReadFile(cfg.ExpectedPath)
 
 	// Normalize: convert \r\n to \n and trim trailing whitespace
@@ -181,73 +227,100 @@ func JudgeTest(cfg JudgeConfig) JudgeResult {
 	got := normalize(gotBytes)
 	expected := normalize(expectedBytes)
 
-	// Parse time and memory
+	// Token-based comparison: split both outputs on any run of whitespace and
+	// compare the resulting tokens in order. This is the standard OJ answer
+	// comparison; it is insensitive to differences between spaces and newlines
+	// and to trailing whitespace, while still catching any difference in the
+	// actual values. (The previous char-by-char comparison mishandled the
+	// space-vs-newline case and could wrongly report a correct answer as wrong.)
+	gotTokens := strings.Fields(got)
+	expTokens := strings.Fields(expected)
 
-	posGot := 0
-	posExpected := 0
-
-	lineNum := 1
-	columnNum := 1
-
-	for {
-		if posGot >= len(got) && posExpected >= len(expected) {
-			// Both ended, no mismatch found
-			result.Passed = true
-			result.Status = "accepted"
-			result.Info = "Accepted"
-			break
-		}
-
-		if posExpected >= len(expected) {
-			if got[posGot] == '\n' {
-				posGot++
-				continue
-			}
-		}
-
-		if posGot >= len(got) {
-			if expected[posExpected] == '\n' {
-				posExpected++
-				continue
-			}
-		}
-
-		if posGot >= len(got) || posExpected >= len(expected) {
-			result.Passed = false
-			result.Status = "wrong_answer"
-			if posGot >= len(got) {
-				result.Info = fmt.Sprintf("Output ended early in line %d, column %d, expected '%c'", lineNum, columnNum, expected[posExpected])
-			} else {
-				result.Info = fmt.Sprintf("Output has extra character '%c' in line %d, column %d", got[posGot], lineNum, columnNum)
-			}
-			break
-		}
-
-		if got[posGot] == '\n' && expected[posExpected] == ' ' {
-			posExpected++
-		} else if got[posGot] == ' ' && expected[posExpected] == '\n' {
-			posGot++
-		}
-
-		if got[posGot] != expected[posExpected] {
-			result.Passed = false
-			result.Status = "wrong_answer"
-			result.Info = fmt.Sprintf("Mismatch at line %d, column %d: got '%c', expected '%c'", lineNum, columnNum, got[posGot], expected[posExpected])
-			break
-		}
-
-		if got[posGot] == '\n' {
-			lineNum++
-			columnNum = 1
+	if len(gotTokens) != len(expTokens) {
+		result.Passed = false
+		result.Status = "wrong_answer"
+		if len(gotTokens) < len(expTokens) {
+			result.Info = fmt.Sprintf("Output ended early: expected %d tokens but got %d (next expected '%s')",
+				len(expTokens), len(gotTokens), expTokens[len(gotTokens)])
 		} else {
-			columnNum++
+			result.Info = fmt.Sprintf("Output too long: expected %d tokens but got %d",
+				len(expTokens), len(gotTokens))
 		}
-
-		posGot++
-		posExpected++
+		return result
 	}
 
+	for i := range expTokens {
+		if gotTokens[i] != expTokens[i] {
+			result.Passed = false
+			result.Status = "wrong_answer"
+			result.Info = fmt.Sprintf("Wrong answer at token %d: expected '%s', got '%s'",
+				i+1, expTokens[i], gotTokens[i])
+			return result
+		}
+	}
+
+	result.Passed = true
+	result.Status = "accepted"
+	result.Info = "Accepted"
 	return result
+}
+
+// runContainerDetached starts a Docker container in detached mode, waits for it to
+// finish (up to timeout), and guarantees the container is removed.
+//
+// Why detached instead of exec.CommandContext with "docker run --rm": when the Go
+// context deadline fires, exec.CommandContext sends SIGKILL to the docker CLI. That
+// kills the client but the container keeps running inside the Docker daemon (the
+// workload has no internal timeout), and because --rm only removes a container when
+// *it* exits, a hung container is never removed. Over many submissions (e.g. TLE /
+// infinite-loop solutions) these orphaned containers accumulate and leak memory in
+// the Docker daemon. Running detached and always "docker rm -f" at the end ensures
+// every container is cleaned up, so the daemon cannot leak containers/memory.
+func runContainerDetached(dockerArgs []string, timeout time.Duration) (timedOut bool, err error) {
+	// Build "docker run -d ..." so we obtain the container ID from stdout and can
+	// forcibly remove it later if needed.
+	startArgs := make([]string, 0, len(dockerArgs)+1)
+	if len(dockerArgs) > 0 && dockerArgs[0] == "run" {
+		startArgs = append(startArgs, "run", "-d")
+		startArgs = append(startArgs, dockerArgs[1:]...)
+	} else {
+		startArgs = append(startArgs, "-d")
+		startArgs = append(startArgs, dockerArgs...)
+	}
+
+	startCmd := exec.Command("docker", startArgs...)
+	idOut, startErr := startCmd.Output()
+	if startErr != nil {
+		return false, fmt.Errorf("docker run failed: %w", startErr)
+	}
+	containerID := strings.TrimSpace(string(idOut))
+	if containerID == "" {
+		return false, fmt.Errorf("docker run returned empty container id")
+	}
+
+	// Always attempt to remove the container. On normal exit --rm already removed it
+	// (docker's "rm -f" then returns a non-zero status — a benign CLI quirk we
+	// ignore); on timeout or error this guarantees cleanup so the Docker daemon
+	// never leaks the container and its memory. We intentionally ignore the error
+	// because "rm -f" is meant to be best-effort: the container is either already
+	// gone (--rm) or forcibly removed now.
+	defer func() {
+		_ = exec.Command("docker", "rm", "-f", containerID).Run()
+	}()
+
+	waitCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	waitCmd := exec.CommandContext(waitCtx, "docker", "wait", containerID)
+	var waitOut bytes.Buffer
+	waitCmd.Stdout = &waitOut
+	waitCmd.Stderr = &waitOut
+	if werr := waitCmd.Run(); werr != nil {
+		if waitCtx.Err() == context.DeadlineExceeded {
+			return true, nil
+		}
+		return false, fmt.Errorf("docker wait failed: %w", werr)
+	}
+	return false, nil
 }
 
 // StartJudge starts the judge loop as a goroutine. It polls the DB for queued submissions.
@@ -293,7 +366,10 @@ func appendMessage(line string) {
 	_, _ = f.WriteString(line + "\n")
 }
 
-func processJob(sub sql_service.Submission) {
+// runJudge compiles and runs all test cases for a submission and returns the
+// resulting status and per-test results. It does NOT write to the database, so it
+// can be reused by both the local judge loop and distributed workers.
+func runJudge(sub sql_service.Submission) (status string, results []sql_service.TestResult) {
 	// create temp working dir under repository root ./tmp (ensure base exists)
 	tmpBase := "./tmp"
 	if err := os.MkdirAll(tmpBase, 0755); err != nil {
@@ -308,9 +384,7 @@ func processJob(sub sql_service.Submission) {
 		tmpDir, err = os.MkdirTemp("", fmt.Sprintf("sub-%d-", sub.ID))
 		if err != nil {
 			log.Printf("failed to create system tmp dir: %v", err)
-			_ = sql_service.UpdateSubmissionResult(sub.ID, "internal_error", nil)
-			appendMessage(fmt.Sprintf("%s submitted %d => INTERNAL_ERROR (tmp)", sub.Username, sub.ProblemID))
-			return
+			return "internal_error", nil
 		}
 	}
 	// try to make tmpDir world-readable/executable so other processes can inspect
@@ -322,9 +396,7 @@ func processJob(sub sql_service.Submission) {
 
 	if err := os.WriteFile(codePath, []byte(sub.Code), 0644); err != nil {
 		log.Printf("failed to write code file: %v", err)
-		_ = sql_service.UpdateSubmissionResult(sub.ID, "internal_error", nil)
-		appendMessage(fmt.Sprintf("%s submitted %d => INTERNAL_ERROR (write)", sub.Username, sub.ProblemID))
-		return
+		return "internal_error", nil
 	}
 
 	// verify file actually exists and is writable (some environments may hide errors)
@@ -395,38 +467,62 @@ func processJob(sub sql_service.Submission) {
 		}
 	}
 
-	results := []sql_service.TestResult{}
-	status := "ok"
+	results = []sql_service.TestResult{}
+	// Default; overridden below by the all-pass / not-accepted decision, or by an
+	// early return. Kept as "accepted" (not the legacy "ok") so the stored status
+	// is always consistent with what the web layer queries.
+	status = "accepted"
 
 	// compile inside docker
 	// use absolute paths to avoid stray files
 	absTmp, _ := filepath.Abs(tmpDir)
-	// use absolute g++ path to avoid PATH issues inside image
-	compileCmd := "g++ solution.cpp -O2 -std=c++17 -o solution 2>compile.err; if [ -s compile.err ]; then cat compile.err >&2; exit 2; fi"
+	// use absolute g++ path to avoid PATH issues inside image.
+	// Redirect compiler output and exit code to files in the work dir so they
+	// survive the detached run (a detached container's stdio is not captured).
+	compileCmd := "g++ solution.cpp -O2 -std=c++17 -o solution > compile.err 2>&1; echo $? > compile.rc"
 	// compilation can require significantly more memory than runtime limits; raise compile memory cap
 	compileMem := 512
-	dockerCompileArgs := []string{"run", "--rm", "-v", absTmp + ":/work", "-w", "/work", "--network", "none", "--memory", fmt.Sprintf("%dm", compileMem), "--cpus", "1.0", "gcc-with-time", "bash", "-lc", fmt.Sprintf("%v", compileCmd)}
-	// dockerCompileArgs := []string{"run", "--rm", "-v", absTmp + ":/work", "-w", "/work", "--network", "none", "--memory", fmt.Sprintf("%dm", compileMem), "--cpus", "1.0", "gcc:12", "bash", "-lc", compileCmd}
-	// increase compile timeout to allow for image/pulled layers and heavier builds
-	cctx, ccancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer ccancel()
-	ccmd := exec.CommandContext(cctx, "docker", dockerCompileArgs...)
-	var cerr bytes.Buffer
-	var cout bytes.Buffer
-	ccmd.Stderr = &cerr
-	ccmd.Stdout = &cout
-	// log.Printf("running compile: docker %s", strings.Join(dockerCompileArgs, " "))
-	if err := ccmd.Run(); err != nil {
-		// compile error
+	dockerCompileArgs := []string{"run", "--rm", "-v", absTmp + ":/work", "-w", "/work", "--network", "none", "--memory", fmt.Sprintf("%dm", compileMem), "--cpus", "1.0", "--ulimit", fmt.Sprintf("stack=%d", compileMem*1024*1024), "gcc-with-time", "bash", "-lc", fmt.Sprintf("%v", compileCmd)}
+	// increase compile timeout to allow for image/pulled layers and heavier builds;
+	// run detached so a timeout cannot leak the container (see runContainerDetached).
+	compileTimedOut, compileErr := runContainerDetached(dockerCompileArgs, 10*time.Second)
+	if compileErr != nil || compileTimedOut {
 		status = "compile_error"
-		outStr := cout.String() + "\n" + cerr.String()
+		var outStr string
+		if compileTimedOut {
+			outStr = "compilation timed out"
+		} else {
+			outStr = fmt.Sprintf("compilation failed to start: %v", compileErr)
+		}
+		if eb, e := os.ReadFile(filepath.Join(absTmp, "compile.err")); e == nil {
+			outStr += "\n" + string(eb)
+		}
 		results = append(results, sql_service.TestResult{TestIndex: 0, Passed: false, Output: outStr, TimeMs: 0, MemoryKB: 0})
-		_ = sql_service.UpdateSubmissionResult(sub.ID, status, results)
-		appendMessage(fmt.Sprintf("%s submitted %d => COMPILE_ERROR : %v output=%s", sub.Username, sub.ProblemID, err, outStr))
-		return
+		return status, results
 	}
 
-	// run tests sequentially using JudgeTest
+	// read compile result written by the container
+	rcBytes, _ := os.ReadFile(filepath.Join(absTmp, "compile.rc"))
+	compileRC, _ := strconv.Atoi(strings.TrimSpace(string(rcBytes)))
+	if compileRC != 0 {
+		status = "compile_error"
+		eb, _ := os.ReadFile(filepath.Join(absTmp, "compile.err"))
+		outStr := string(eb)
+		results = append(results, sql_service.TestResult{TestIndex: 0, Passed: false, Output: outStr, TimeMs: 0, MemoryKB: 0})
+		return status, results
+	}
+
+	// Run every test case of the submission concurrently using a bounded pool of
+	// goroutines (single-task multi-threaded evaluation). Each test gets its own
+	// isolated work subdirectory so the Docker containers never clobber each
+	// other's in.in / out.out / time.log / rc files.
+	//
+	// Group semantics are preserved: each test group carries a score that is
+	// credited to the group's last test case only when *all* tests in the group
+	// pass; the submission is accepted only when every group passes. (The previous
+	// "skip the rest of a group after a failure" optimization is dropped — with
+	// concurrency every test is evaluated independently and its true result is
+	// shown, which is strictly more informative.)
 
 	obj := make(map[string]any)
 	_ = json.Unmarshal(cfgData, &obj)
@@ -435,105 +531,142 @@ func processJob(sub sql_service.Submission) {
 		testGroups = v
 	} else {
 		// return error if test groups not found; we require test groups to determine how many tests to run
-		appendMessage(fmt.Sprintf("%s submitted %d => INTERNAL_ERROR (no test cases)", sub.Username, sub.ProblemID))
-		_ = sql_service.UpdateSubmissionResult(sub.ID, "internal_error", nil)
-		return
+		return "internal_error", nil
 	}
 
-	allPassed := true
+	// Parse groups into a flat list of jobs while remembering which slot belongs to
+	// which group, so group scoring can be applied after all tests finish.
+	type parsedGroup struct {
+		score int
+		tests []int
+	}
+	type testJob struct {
+		groupIdx int
+		testIdx  int
+		slot     int
+	}
 
-	for _, testGroup := range testGroups {
+	groups := make([]parsedGroup, 0, len(testGroups))
+	jobs := make([]testJob, 0)
+	groupSlots := make([][]int, 0, len(testGroups))
 
-		if testGroupMap, ok := testGroup.(map[string]any); !ok {
-			// skip invalid test group
-			_ = sql_service.UpdateSubmissionResult(sub.ID, "internal_error", nil)
+	for _, tg := range testGroups {
+		tgMap, ok := tg.(map[string]any)
+		if !ok {
 			continue
-		} else {
-			// support both "tests" and "test_count" to specify number of tests in this group
-			tests := []int{}
-			if v, ok := testGroupMap["cases"].([]interface{}); ok {
-				for _, caseVal := range v {
-					if num, ok := caseVal.(float64); ok {
-						tests = append(tests, int(num))
-					}
-				}
-			} else {
-				_ = sql_service.UpdateSubmissionResult(sub.ID, "internal_error", nil)
-				continue
-			}
-
-			groupPassed := true
-
-			for _, i := range tests {
-				if !groupPassed {
-					// skip remaining tests in this group if one already failed
-					results = append(results, sql_service.TestResult{
-						TestIndex: i,
-						Passed:    false,
-						Output:    "Skipped due to previous failure in group",
-						TimeMs:    0,
-						MemoryKB:  0,
-						Status:    "skipped",
-					})
-					continue
-				}
-
-				inPath := filepath.Join("data", "problem", fmt.Sprintf("%d", sub.ProblemID), fmt.Sprintf("%d.in", i))
-				expectedPath := filepath.Join("data", "problem", fmt.Sprintf("%d", sub.ProblemID), fmt.Sprintf("%d.ans", i))
-
-				// Prepare configuration for this test
-				cfg := JudgeConfig{
-					TimeLimit:    timeLimit,
-					MemLimit:     memMB,
-					InputPath:    inPath,
-					WorkTmpPath:  tmpDir,
-					ExpectedPath: expectedPath,
-				}
-
-				// Run the test using the encapsulated function
-				testResult := JudgeTest(cfg)
-
-				// Convert JudgeResult to TestResult
-				testIdx := i
-				testPassed := testResult.Passed
-				testOutput := testResult.Info // for WA, Info contains the mismatch details; for RE, it contains the error message
-				testTimeMs := testResult.RunTimeMs
-				testMemKB := testResult.MemoryKB
-				testStatus := testResult.Status
-
-				// Store test result
-				results = append(results, sql_service.TestResult{
-					TestIndex: testIdx,
-					Passed:    testPassed,
-					Output:    testOutput,
-					// Expected:  testExpected,
-					TimeMs:   testTimeMs,
-					MemoryKB: testMemKB,
-					Status:   testStatus,
-					Score:    0, // scoring can be implemented later based on test groups or other criteria
-				})
-
-				// Handle different statuses
-				if !testPassed {
-					groupPassed = false
-					allPassed = false
+		}
+		pg := parsedGroup{}
+		if v, ok := tgMap["score"].(float64); ok { // tolerate a missing score (defaults to 0)
+			pg.score = int(v)
+		}
+		if v, ok := tgMap["cases"].([]interface{}); ok {
+			for _, cv := range v {
+				if num, ok := cv.(float64); ok {
+					pg.tests = append(pg.tests, int(num))
 				}
 			}
+		}
+		if len(pg.tests) == 0 {
+			continue
+		}
+		gIdx := len(groups)
+		groups = append(groups, pg)
+		slots := make([]int, 0, len(pg.tests))
+		for _, ti := range pg.tests {
+			slot := len(jobs)
+			jobs = append(jobs, testJob{groupIdx: gIdx, testIdx: ti, slot: slot})
+			slots = append(slots, slot)
+		}
+		groupSlots = append(groupSlots, slots)
+	}
 
-			if groupPassed {
-				// if all tests in this group passed, we can continue to next group
-				results[len(results)-1].Score = int(testGroupMap["score"].(float64)) // assign group score to last test in group; adjust as needed for different scoring schemes
+	if len(jobs) == 0 {
+		return "internal_error", nil
+	}
+
+	results = make([]sql_service.TestResult, len(jobs))
+
+	// Bounded concurrency: cap simultaneous Docker containers so a submission with
+	// many test cases cannot exhaust host memory. The limit comes from
+	// judge.per_task_concurrency (config); it is also capped at the job count.
+	perTask := config.GetPerTaskConcurrency()
+	if perTask < 1 {
+		perTask = len(jobs)
+	}
+	if perTask > len(jobs) {
+		perTask = len(jobs)
+	}
+	sem := make(chan struct{}, perTask)
+	var wg sync.WaitGroup
+
+	for _, job := range jobs {
+		wg.Add(1)
+		go func(j testJob) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			inPath := filepath.Join("data", "problem", fmt.Sprintf("%d", sub.ProblemID), fmt.Sprintf("%d.in", j.testIdx))
+			expectedPath := filepath.Join("data", "problem", fmt.Sprintf("%d", sub.ProblemID), fmt.Sprintf("%d.ans", j.testIdx))
+
+			// The compiled `solution` binary lives in the parent tmpDir (mounted as
+			// /work). We isolate each test's I/O in its own subdir via TestIODir so
+			// concurrently running containers never overwrite each other's
+			// in.in / out.out / time.log / rc files.
+			cfg := JudgeConfig{
+				TimeLimit:    timeLimit,
+				MemLimit:     memMB,
+				InputPath:    inPath,
+				WorkTmpPath:  tmpDir,
+				TestIODir:    fmt.Sprintf("tc-%d", j.slot),
+				ExpectedPath: expectedPath,
 			}
+
+			r := JudgeTest(cfg)
+			results[j.slot] = sql_service.TestResult{
+				TestIndex: j.testIdx,
+				Passed:    r.Passed,
+				Output:    r.Info, // for WA, Info holds the mismatch details; for RE, the error message
+				TimeMs:    r.RunTimeMs,
+				MemoryKB:  r.MemoryKB,
+				Status:    r.Status,
+				Score:     0,
+			}
+		}(job)
+	}
+	wg.Wait()
+
+	// Apply group scoring and compute the overall submission status.
+	allPassed := true
+	for gi, g := range groups {
+		groupPassed := true
+		for _, slot := range groupSlots[gi] {
+			if !results[slot].Passed {
+				groupPassed = false
+				allPassed = false
+			}
+		}
+		if groupPassed && len(groupSlots[gi]) > 0 {
+			results[groupSlots[gi][len(groupSlots[gi])-1]].Score = g.score
 		}
 	}
 
-	// all passed
 	if allPassed {
 		status = "accepted"
 	} else {
 		status = "not accepted"
 	}
 
+	return status, results
+}
+
+// processJob runs the judge and writes the result to the database. Used by the
+// local judge loop and by the coordinator's embedded judge.
+func processJob(sub sql_service.Submission) {
+	status, results := runJudge(sub)
+	if status == "" {
+		status = "internal_error"
+	}
 	_ = sql_service.UpdateSubmissionResult(sub.ID, status, results)
-	appendMessage(fmt.Sprintf("%s submitted %d => OK", sub.Username, sub.ProblemID))
+	appendMessage(fmt.Sprintf("%s submitted %d => %s", sub.Username, sub.ProblemID, status))
 }

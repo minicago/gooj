@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/minicago/gooj/config"
 	"gorm.io/gorm"
 )
 
@@ -86,6 +87,14 @@ func CalculateContestRating(contestID uint) error {
 	}
 	avgRating := totalRating / len(leaderboard)
 
+	// Highest total score, used for the score-based component of the rating blend.
+	maxTotal := 0
+	for _, row := range leaderboard {
+		if row.Total > maxTotal {
+			maxTotal = row.Total
+		}
+	}
+
 	// Calculate ranks considering ties (same total score = same rank)
 	// Sort by total descending, username ascending for stable ordering
 	sortedLeaderboard := make([]ContestRankingRow, len(leaderboard))
@@ -113,6 +122,11 @@ func CalculateContestRating(contestID uint) error {
 		}
 	}
 
+	// Customizable rating weights (set by admin). rankWeight blends the rank-based
+	// performance (1st place ~ 1.0) with a score-based performance (total / maxTotal).
+	rankWeight := config.GetRatingRankWeight()
+	kFactor := config.GetRatingKFactor()
+
 	// Calculate and store rating changes
 	histories := make([]ContestRatingHistory, 0, len(leaderboard))
 	for _, row := range leaderboard {
@@ -127,12 +141,21 @@ func CalculateContestRating(contestID uint) error {
 		ratingBefore := user.Rating
 		rank := rankings[username]
 
-		// Calculate score ratio (0 to 1) based on rank
-		// Rank 1 gets 1.0, last place gets 0.0, linear interpolation
-		scoreRatio := 1.0 - (float64(rank-1) / float64(len(leaderboard)-1))
+		// Rank-based score ratio (0 to 1): rank 1 gets 1.0, last place gets 0.0.
+		scoreRatioByRank := 1.0
+		if len(leaderboard) > 1 {
+			scoreRatioByRank = 1.0 - (float64(rank-1) / float64(len(leaderboard)-1))
+		}
+		// Score-based score ratio (0 to 1): own total / best total in contest.
+		scoreRatioByScore := 0.0
+		if maxTotal > 0 {
+			scoreRatioByScore = float64(row.Total) / float64(maxTotal)
+		}
+		// Blend the two components using the admin-configured rank weight.
+		scoreRatio := rankWeight*scoreRatioByRank + (1-rankWeight)*scoreRatioByScore
 
-		// Calculate new rating using Elo-based formula
-		ratingAfter := CalculateNewRating(ratingBefore, avgRating, scoreRatio, DefaultKFactor)
+		// Calculate new rating using Elo-based formula with the configured K-factor
+		ratingAfter := CalculateNewRating(ratingBefore, avgRating, scoreRatio, kFactor)
 
 		history := ContestRatingHistory{
 			Username:     username,
@@ -239,9 +262,19 @@ func GetEndedContestsWithoutRating() ([]Contest, error) {
 	now := time.Now()
 	var contests []Contest
 
-	// Find contests that have ended and not yet settled
-	if err := db.Where("end_at < ? AND rating_settled = ?", now, false).Find(&contests).Error; err != nil {
+	// Find contests not yet settled (rating_settled is a bool, safe to filter in
+	// SQL), then filter "ended" in Go. We must not compare end_at in SQL: contest
+	// times are stored in UTC while now serializes with the local offset, and
+	// SQLite's TEXT string comparison across timezones is wrong (a running contest
+	// can look ended and vice-versa).
+	var candidates []Contest
+	if err := db.Where("rating_settled = ?", false).Find(&candidates).Error; err != nil {
 		return nil, err
+	}
+	for _, c := range candidates {
+		if c.EndAt.Before(now) { // contest has ended
+			contests = append(contests, c)
+		}
 	}
 
 	return contests, nil
@@ -256,13 +289,75 @@ func GetStartedContestsWithoutReveal() ([]Contest, error) {
 	now := time.Now()
 	var contests []Contest
 
-	// Find contests that have started but still have hidden problems
-	// A contest needs reveal if it has started AND has at least one problem with problem_visible=false
-	if err := db.Where("start_at <= ?", now).
+	// Find contests that still have hidden problems (the EXISTS check is timezone
+	// independent, so it stays in SQL), then filter "has started" in Go. We must
+	// not compare start_at in SQL because contest times are stored in UTC while now
+	// serializes with the local offset, and SQLite's TEXT string comparison across
+	// timezones is wrong.
+	var candidates []Contest
+	if err := db.
 		Where("EXISTS (SELECT 1 FROM contest_problems cp JOIN problems p ON p.id = cp.problem_id WHERE cp.contest_id = contests.id AND p.problem_visible = false)").
-		Find(&contests).Error; err != nil {
+		Find(&candidates).Error; err != nil {
 		return nil, err
+	}
+	for _, c := range candidates {
+		if !now.Before(c.StartAt) { // start_at <= now
+			contests = append(contests, c)
+		}
 	}
 
 	return contests, nil
+}
+
+// RecomputeAllRatings resets every user's rating to the initial value and replays
+// all ended contests in chronological order, applying the *current* rating weights
+// from config. Ratings accumulate across contests, so changing the weights for one
+// contest is only consistent if the whole chain is rebuilt.
+func RecomputeAllRatings() error {
+	if db == nil {
+		return errors.New("db not initialized")
+	}
+
+	// Reset all users to the initial rating and wipe existing rating history.
+	if err := db.Model(&User{}).Where("1 = 1").Update("rating", InitialRating).Error; err != nil {
+		return err
+	}
+	if err := db.Where("1 = 1").Delete(&ContestRatingHistory{}).Error; err != nil {
+		return err
+	}
+	// Allow every ended contest to be settled again.
+	if err := db.Model(&Contest{}).Where("1 = 1").Update("rating_settled", false).Error; err != nil {
+		return err
+	}
+
+	// Replay all ended contests in chronological order. We fetch all contests
+	// ordered by end_at (an intra-column ordering that is consistent even as TEXT)
+	// and filter "ended" in Go with a timezone-safe time.Time comparison, because
+	// contest times are stored in UTC while now serializes with the local offset.
+	now := time.Now()
+	var allContests []Contest
+	if err := db.Order("end_at asc, id asc").Find(&allContests).Error; err != nil {
+		return err
+	}
+	var contests []Contest
+	for _, c := range allContests {
+		if c.EndAt.Before(now) {
+			contests = append(contests, c)
+		}
+	}
+	for _, c := range contests {
+		if err := CalculateContestRating(c.ID); err != nil {
+			// A single failed contest must not abort the whole rebuild; log and skip.
+			log.Printf("RecomputeAllRatings: skipped contest %d: %v", c.ID, err)
+		}
+	}
+	return nil
+}
+
+// RecalculateContestRating recomputes rating for a specific contest using the
+// current weights. Because ratings accumulate across contests, this rebuilds the
+// entire rating chain (equivalent to RecomputeAllRatings) so the result stays
+// correct and consistent with the other contests.
+func RecalculateContestRating(contestID uint) error {
+	return RecomputeAllRatings()
 }

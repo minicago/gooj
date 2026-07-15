@@ -1,0 +1,7 @@
+Configuration loaded from config/config.yaml
+2026/07/15 13:17:53 SQL service started
+2026/07/15 13:17:53 File service started
+2026/07/15 13:17:53 Judge service started
+2026/07/15 13:17:53 Background services started
+listen failed, err:listen tcp 127.0.0.1:9090: bind: address already in use
+listening on :8012

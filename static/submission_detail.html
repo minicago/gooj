@@ -74,36 +74,49 @@
             display: inline-block;
         }
         
-        .status-ok {
+        .status-ok,
+        .status-accepted {
             background-color: #d4edda;
             color: #155724;
         }
         
-        .status-wa {
+        .status-not-accepted,
+        .status-wa,
+        .status-wrong_answer {
             background-color: #f8d7da;
             color: #721c24;
         }
         
-        .status-tle {
+        .status-tle,
+        .status-time_limit_exceeded {
             background-color: #fff3cd;
             color: #856404;
         }
         
-        .status-mle {
+        .status-mle,
+        .status-memory_limit_exceeded {
             background-color: #d1ecf1;
             color: #0c5460;
         }
         
         .status-compile_error,
-        .status-runtime_error {
+        .status-runtime_error,
+        .status-internal_error {
             background-color: #f5c6cb;
             color: #721c24;
         }
         
         .status-queued,
-        .status-running {
+        .status-running,
+        .status-skipped,
+        .status-cancelled {
             background-color: #cce5ff;
             color: #004085;
+        }
+
+        .status-score_cancelled {
+            background-color: #e2e3e5;
+            color: #6c757d;
         }
         
         .code-section {
@@ -171,7 +184,7 @@
         }
         
         .tests-table th {
-            background-color: #1500ff;
+            background-color: #f3f4f6;
             font-weight: bold;
         }
         
@@ -271,6 +284,49 @@
             color: #6c757d;
             font-weight: bold;
         }
+
+        .admin-panel {
+            background-color: #fff8e1;
+            border: 1px solid #ffe082;
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+        }
+
+        .admin-panel h3 {
+            margin: 0 0 10px 0;
+            font-size: 15px;
+            color: #8a6d00;
+        }
+
+        .admin-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .admin-btn {
+            padding: 8px 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            color: #fff;
+            font-size: 13px;
+        }
+
+        .admin-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .admin-btn.rejudge { background-color: #2d5a87; }
+        .admin-btn.rejudge:hover { background-color: #234a70; }
+        .admin-btn.cancel-eval { background-color: #d97706; }
+        .admin-btn.cancel-eval:hover { background-color: #b45c04; }
+        .admin-btn.cancel-score { background-color: #dc3545; }
+        .admin-btn.cancel-score:hover { background-color: #b52a37; }
+        .admin-btn.restore-score { background-color: #28a745; }
+        .admin-btn.restore-score:hover { background-color: #218838; }
     </style>
 </head>
 <body>
@@ -314,6 +370,16 @@
                     </div>
                 </div>
             </div>
+
+            <div class="admin-panel" id="adminPanel" style="display: none;">
+                <h3>管理员操作</h3>
+                <div class="admin-actions">
+                    <button class="admin-btn rejudge" onclick="adminAction('rejudge')">重测</button>
+                    <button class="admin-btn cancel-eval" onclick="adminAction('cancel_eval')">取消评测</button>
+                    <button class="admin-btn cancel-score" onclick="adminAction('cancel_score')">取消成绩</button>
+                    <button class="admin-btn restore-score" onclick="adminAction('restore_score')">恢复成绩</button>
+                </div>
+            </div>
             
             <div class="code-section" id="codeSection" style="display: none;">
                 <div class="code-header">
@@ -354,13 +420,20 @@
         function formatStatus(status) {
             const statusMap = {
                 'ok': '通过',
+                'accepted': '通过',
+                'not accepted': '未通过',
                 'wrong answer': '答案错误',
-                'Accepted': '通过',
-                'Not Accepted': '未通过',
+                'wrong_answer': '答案错误',
+                'time_limit_exceeded': '时间超限',
                 'tle': '时间超限',
+                'memory_limit_exceeded': '内存超限',
                 'mle': '内存超限',
                 'compile_error': '编译错误',
                 'runtime_error': '运行时错误',
+                'skipped': '跳过',
+                'internal_error': '系统错误',
+                'cancelled': '已取消',
+                'score_cancelled': '成绩取消',
                 'queued': '等待评测',
                 'running': '评测中'
             };
@@ -370,6 +443,7 @@
         function getStatusText(status) {
             const statusMap = {
                 'accepted': '通过',
+                'not accepted': '未通过',
                 'wrong_answer': '答案错误',
                 'time_limit_exceeded': '时间超限',
                 'memory_limit_exceeded': '内存超限',
@@ -377,13 +451,16 @@
                 'compile_error': '编译错误',
                 'skipped': '跳过',
                 'internal_error': '系统错误',
-                'compile_error': '编译错误'
+                'cancelled': '已取消',
+                'score_cancelled': '成绩取消'
             };
             return statusMap[status] || '未知错误';
         }
 
+        // Normalize a status string into a CSS class name by replacing spaces and
+        // lowercasing, so e.g. "not accepted" -> "status-not-accepted".
         function formatStatusClass(status) {
-            return `status-${status}`;
+            return 'status-' + String(status).toLowerCase().replace(/\s+/g, '-');
         }
 
         function formatTime(ms) {
@@ -555,11 +632,63 @@
                     testsBody.appendChild(row);
                 }
 
+                // 管理员操作面板（需要 EditPermission）
+                await setupAdminPanel();
+
             } catch (error) {
                 console.error('Error loading submission:', error);
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('error').style.display = 'block';
                 document.getElementById('error').textContent = error.message;
+            }
+        }
+
+        // 显示管理员操作面板（仅有 EditPermission 的用户）
+        async function setupAdminPanel() {
+            const currentUser = localStorage.getItem('username');
+            if (!currentUser) return;
+            try {
+                const res = await fetch('/api/user_permissions?username=' +
+                    encodeURIComponent(currentUser) + '&permission=EditPermission');
+                const data = await res.json();
+                if (data && data.permited) {
+                    document.getElementById('adminPanel').style.display = 'block';
+                }
+            } catch (e) {
+                console.warn('permission check failed', e);
+            }
+        }
+
+        const ADMIN_ACTION_CONF = {
+            'rejudge':       { path: 'rejudge',       label: '重测',     confirm: '确定重新评测该提交吗？' },
+            'cancel_eval':   { path: 'cancel_eval',   label: '取消评测', confirm: '确定取消该提交的评测吗？运行中的结果将被丢弃。' },
+            'cancel_score':  { path: 'cancel_score',  label: '取消成绩', confirm: '确定取消该提交的成绩吗？记录保留但不计入排名。' },
+            'restore_score': { path: 'restore_score', label: '恢复成绩', confirm: '确定恢复该提交的成绩吗？' }
+        };
+
+        async function adminAction(action) {
+            const conf = ADMIN_ACTION_CONF[action];
+            if (!conf) return;
+            if (!confirm(conf.confirm)) return;
+
+            const buttons = document.querySelectorAll('.admin-btn');
+            buttons.forEach(b => b.disabled = true);
+            try {
+                const res = await fetch(`/api/submission/${submissionId}/${conf.path}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                if (!res.ok) {
+                    const txt = await res.text();
+                    throw new Error(txt || ('HTTP ' + res.status));
+                }
+                alert(conf.label + '成功');
+                // 重新加载以反映最新状态
+                await loadSubmission();
+            } catch (e) {
+                alert(conf.label + '失败：' + e.message);
+            } finally {
+                document.querySelectorAll('.admin-btn').forEach(b => b.disabled = false);
             }
         }
 

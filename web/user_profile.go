@@ -59,10 +59,11 @@ func GetUserProfileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user's solved problems (status = "ok")
+	// Get user's solved problems (a submission counts as solved once it is "accepted").
+	// Match both "accepted" and the legacy "ok" value for backwards compatibility.
 	var submissions []sql_service.Submission
 	db.Model(&sql_service.Submission{}).
-		Where("username = ? AND status = ?", targetUsername, "ok").
+		Where("username = ? AND status IN ?", targetUsername, []string{"accepted", "ok"}).
 		Find(&submissions)
 
 	// Get unique problem IDs
@@ -82,7 +83,7 @@ func GetUserProfileHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Get accepted submissions count
 	var acSub int64
-	db.Model(&sql_service.Submission{}).Where("username = ? AND status = ?", targetUsername, "ok").Count(&acSub)
+	db.Model(&sql_service.Submission{}).Where("username = ? AND status IN ?", targetUsername, []string{"accepted", "ok"}).Count(&acSub)
 
 	// Get contest history
 	histories, _ := sql_service.GetUserRatingHistory(targetUsername)
@@ -152,6 +153,41 @@ func UpdateUserRatingHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"message":"Rating updated"}`))
 }
 
+// ChangePasswordHandler lets the currently authenticated user change their own
+// password. The current password must be supplied and verified before the change
+// is applied.
+func ChangePasswordHandler(w http.ResponseWriter, r *http.Request) {
+	currentUsername := manage.CurrentUsername(r)
+	if currentUsername == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		OldPassword string `json:"old_password"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if len(req.NewPassword) < 6 {
+		http.Error(w, "new password must be at least 6 characters", http.StatusBadRequest)
+		return
+	}
+
+	if err := sql_service.ChangePassword(currentUsername, req.OldPassword, req.NewPassword); err != nil {
+		// Distinguish "wrong current password" (401) from other errors.
+		if err.Error() == "current password is incorrect" {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+		} else {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
+		return
+	}
+	writeJSONMessage(w, "ok", "password updated")
+}
+
 // GetUserSubmissionsHandler returns user's submissions for a specific problem
 func GetUserSubmissionsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -192,7 +228,7 @@ func GetUserSolvedProblemsHandler(w http.ResponseWriter, r *http.Request) {
 	var submissions []sql_service.Submission
 	db := sql_service.DB()
 
-	if err := db.Where("username = ? AND status = ?", targetUsername, "ok").Find(&submissions).Error; err != nil {
+	if err := db.Where("username = ? AND status IN ?", targetUsername, []string{"accepted", "ok"}).Find(&submissions).Error; err != nil {
 		http.Error(w, "Failed to fetch solved problems", http.StatusInternalServerError)
 		return
 	}

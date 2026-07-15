@@ -78,6 +78,105 @@
           </div>
         </div>
       </div>
+
+      <div class="card" style="margin-top: 20px;">
+        <h1>Rating 计算设置</h1>
+        <p style="color:#4b5563; font-size:0.9em;">
+          自定义比赛 Rating 计算权重，并可重新计算全部或指定比赛的 Rating。
+          Rating 是累计的，重新计算会以当前权重按时间顺序重放所有已结束比赛。
+        </p>
+        <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
+          <div>
+            <label style="display:block; font-size:0.85em; color:#666;">K 因子（评分波动，默认 32）</label>
+            <input id="kFactorInput" type="number" min="1" max="1000" value="32" style="padding:8px; border:1px solid #ddd; border-radius:6px;" />
+          </div>
+          <div>
+            <label style="display:block; font-size:0.85em; color:#666;">排名权重（0~1，1=纯按排名，0=纯按得分，默认 1.0）</label>
+            <input id="rankWeightInput" type="number" step="0.05" min="0" max="1" value="1.0" style="padding:8px; border:1px solid #ddd; border-radius:6px;" />
+          </div>
+          <button id="saveRatingConfigBtn" class="button primary">保存权重</button>
+        </div>
+        <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:16px;">
+          <button id="recomputeAllBtn" class="button secondary">重新计算所有比赛 Rating</button>
+          <div style="display:flex; gap:8px; align-items:flex-end;">
+            <input id="contestIdInput" type="number" placeholder="比赛 ID" style="padding:8px; border:1px solid #ddd; border-radius:6px;" />
+            <button id="recomputeOneBtn" class="button secondary">重新计算指定比赛</button>
+          </div>
+        </div>
+        <div id="ratingMsg" style="margin-top:12px; color:#2563eb; font-size:0.9em;"></div>
+      </div>
     </div>
+
+    <script>
+      async function loadRatingConfig() {
+        try {
+          const res = await fetch('/api/rating/config');
+          if (!res.ok) return;
+          const cfg = await res.json();
+          document.getElementById('kFactorInput').value = cfg.k_factor;
+          document.getElementById('rankWeightInput').value = cfg.rank_weight;
+        } catch (e) { /* ignore */ }
+      }
+      // saveRatingConfig reads the K-factor / rank-weight inputs and persists them
+      // to the server. Returns true on success, false on failure (msg updated).
+      async function saveRatingConfig(msg) {
+        const k = parseInt(document.getElementById('kFactorInput').value) || 32;
+        const rw = parseFloat(document.getElementById('rankWeightInput').value);
+        const res = await fetch('/api/rating/config', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ k_factor: k, rank_weight: isNaN(rw) ? 1.0 : rw })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || '保存失败');
+        return data;
+      }
+      document.getElementById('saveRatingConfigBtn').addEventListener('click', async () => {
+        const msg = document.getElementById('ratingMsg');
+        try {
+          const data = await saveRatingConfig(msg);
+          msg.style.color = '#16a34a';
+          msg.textContent = '权重已保存（K=' + data.k_factor + ', 排名权重=' + data.rank_weight + '）';
+        } catch (e) {
+          msg.style.color = '#dc2626';
+          msg.textContent = '保存失败：' + e.message;
+        }
+      });
+      document.getElementById('recomputeAllBtn').addEventListener('click', async () => {
+        if (!confirm('确定重新计算所有比赛的 Rating？此操作会重置并依据当前权重重放所有已结束比赛。')) return;
+        const msg = document.getElementById('ratingMsg');
+        msg.style.color = '#2563eb'; msg.textContent = '计算中...';
+        try {
+          // Always persist the weights the operator just typed BEFORE recomputing,
+          // otherwise the rebuild would use the previously-saved K-factor and look
+          // like the new K had no effect.
+          const cfg = await saveRatingConfig(msg);
+          const res = await fetch('/api/rating/recompute', { method: 'POST' });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.message || '失败');
+          msg.style.color = '#16a34a';
+          msg.textContent = '已重新计算所有比赛 Rating（K=' + cfg.k_factor + '）。';
+        } catch (e) {
+          msg.style.color = '#dc2626'; msg.textContent = '失败：' + e.message;
+        }
+      });
+      document.getElementById('recomputeOneBtn').addEventListener('click', async () => {
+        const cid = document.getElementById('contestIdInput').value.trim();
+        if (!cid) return alert('请输入比赛 ID');
+        if (!confirm('确定重新计算比赛 #' + cid + ' 的 Rating（将以当前权重重放全部比赛）？')) return;
+        const msg = document.getElementById('ratingMsg');
+        msg.style.color = '#2563eb'; msg.textContent = '计算中...';
+        try {
+          // Persist the typed weights first, same reason as above.
+          const cfg = await saveRatingConfig(msg);
+          const res = await fetch('/api/rating/recompute/' + encodeURIComponent(cid), { method: 'POST' });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.message || '失败');
+          msg.style.color = '#16a34a'; msg.textContent = '已重新计算比赛 #' + cid + ' 的 Rating（K=' + cfg.k_factor + '）。';
+        } catch (e) {
+          msg.style.color = '#dc2626'; msg.textContent = '失败：' + e.message;
+        }
+      });
+      loadRatingConfig();
+    </script>
   </body>
 </html>

@@ -360,6 +360,11 @@
             <button type="button" id="deleteProblemBtn" class="danger" style="padding: 8px 16px;">删除此题</button>
             <span style="font-size: 0.85em; color: #666; margin-left: 10px;">删除后不可恢复</span>
           </div>
+
+          <div style="margin-top: 15px; padding-top: 15px; border-top: 1px dashed #ddd;">
+            <button type="button" id="rejudgeAllBtn" style="padding: 8px 16px; background:#f59e0b; color:white; border:none; border-radius:6px; cursor:pointer;">重测本题所有提交</button>
+            <span style="font-size: 0.85em; color: #666; margin-left: 10px;">将该题目全部提交重新评测（可能短时占用大量评测机资源）</span>
+          </div>
           
           <div class="test-groups" id="testGroupsSection" style="display: none;">
             <h4>数据分组管理</h4>
@@ -972,6 +977,44 @@
           window.location.href = '/problemlist';
         } catch (e) {
           alert('删除失败：' + e.message);
+        }
+      });
+
+      // Rejudge all submissions of this problem (with warning / preview confirmation)
+      document.getElementById('rejudgeAllBtn').addEventListener('click', async () => {
+        const problemID = document.getElementById('infoID').value.trim();
+        if (!problemID) {
+          alert('请先加载题目');
+          return;
+        }
+        if (!confirm('确定重测本题所有提交？这将把该题目全部提交重新放入评测队列，可能短时占用大量评测机资源。')) {
+          return;
+        }
+        try {
+          // First call (no confirm) returns a preview + warning.
+          const res = await fetch(`/api/problem/${encodeURIComponent(problemID)}/rejudge_all`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+          });
+          const data = await res.json();
+          if (data.requires_confirm) {
+            if (!confirm(`该题目共 ${data.count} 条提交将被重测。\n${data.warning}\n\n再次确认以执行？`)) {
+              return;
+            }
+            const res2 = await fetch(`/api/problem/${encodeURIComponent(problemID)}/rejudge_all`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ confirm: true })
+            });
+            const data2 = await res2.json();
+            alert(data2.message || '已提交重测');
+            return;
+          }
+          if (!res.ok) throw new Error(data.message || await res.text());
+          alert('已提交重测：' + (data.message || data.count + ' 条'));
+        } catch (e) {
+          alert('重测失败：' + e.message);
         }
       });
     </script>
